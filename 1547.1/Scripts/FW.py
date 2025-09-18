@@ -37,7 +37,7 @@ from svpelab import loadsim
 from svpelab import pvsim
 from svpelab import das
 from svpelab import der
-from svpelab import hil
+from svpelab import hil as hil_lib
 from svpelab import result as rslt
 from svpelab import p1547
 import script
@@ -47,7 +47,54 @@ import collections
 FW = 'FW'  # Frequency-Watt
 
 def test_run():
+    """
+    Runs the frequency-droop (frequency-power or frequency-watt)-FRT test script.
+    
+    This function is the main entry point for the FW test script. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.15.2.2 (above nominal frequency) and 5.15.3.2 (below nominal frequency) :
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.  
+        2. Configures the EUT to disable all voltage trip parameters and reactive/active power control functions.      
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.                           
+        4. Adjusts the EUT's available active power to the rated value and sets the EUT's output power to 50% of Prated
+        5. Set the EUT to frequency watt mode and set to the corresponding parameters to the  values in the table below.
+        6. Executes the test steps, and recording the time-domain response.
+        7. Saves the test results to a CSV file and creates a result workbook.
+    
+    The function returns the overall test result (RESULT_COMPLETE or RESULT_FAIL).
+    """
 
+
+    """
+    Table 34 - Characteristic 1: Default frequency-power power settings for abnormal operating performance 
+    Category I, II, and III DER
+    +-------------------+-------------------+-------------------+-------------------+
+    | Parameter         |    Category I     |   Category II     |   Category III    |
+    +-------------------+-------------------+-------------------+-------------------+
+    | dbOF (Hz)         |       0.036       |       0.036       |      0.036        |
+    +-------------------+-------------------+-------------------+-------------------+
+    | kOF               |       0.05        |        0.05       |       0.05        |
+    +-------------------+-------------------+-------------------+-------------------+
+    | Tr (s)            |         5         |         5         |         5         |
+    | (small signal)    |                   |                   |                   |
+    +-------------------+-------------------+-------------------+-------------------+
+    """
+
+    """
+    Table 35 - Characteristic 2: Frequency-power power settings for abnormal operating performance
+    Category I, II, and III DER
+    +-------------------+-------------------+-------------------+-------------------+
+    | Parameter         |   Category I      |   Category II     | Category III      |
+    +-------------------+-------------------+-------------------+-------------------+
+    | dbOF (Hz)         |       0.017       |       0.017       |      0.017        |
+    +-------------------+-------------------+-------------------+-------------------+
+    | kOF               |       0.03        |        0.03       |       0.02        |
+    +-------------------+-------------------+-------------------+-------------------+
+    | Tr (s)            |         1         |         1         |        0.2        |
+    | (small signal)    |                   |                   |                   |
+    +-------------------+-------------------+-------------------+-------------------+
+    """
     result = script.RESULT_FAIL
     # Variables use in script
     daq = None
@@ -55,7 +102,7 @@ def test_run():
     grid = None
     pv = None
     eut = None
-    chil = None
+    hil = None
     result_summary = None
     dataset_filename = None
     fw_curves = []
@@ -128,16 +175,20 @@ def test_run():
         a) Connect the EUT according to the instructions and specifications provided by the manufacturer.
         '''
         # initialize HIL environment, if necessary
-        chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
+        hil = hil_lib.hil_init(ts)
+        hil_setup = ts.params['hil.setup']
+
+        if hil is not None and hil_setup == 'SIL':
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
+
 
         # DAS soft channels
         # TODO : add to library 1547
         #das_points = {'sc': ('P_TARGET', 'P_TARGET_MIN', 'P_TARGET_MAX', 'P_MEAS', 'F_TARGET', 'F_MEAS', 'event')}
         das_points = ActiveFunction.get_sc_points()
         # initialize data acquisition system
-        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': chil}) 
+        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': hil}) 
         if daq is not None:
             daq.sc['P_TARGET'] = 100
             daq.sc['P_TARGET_MIN'] = 100
@@ -148,8 +199,10 @@ def test_run():
             daq.sc['event'] = 'None'
             ts.log('DAS device: %s' % daq.info())
 
+        ActiveFunction.set_daq(daq)
+
         # Configure the EUT communications
-        eut = der.der_init(ts, support_interfaces={'hil': chil}) 
+        eut = der.der_init(ts, support_interfaces={'hil': hil}) 
         '''
         b) Set all frequency trip parameters to the widest range of adjustability. 
             Disable all reactive/active power control functions.
@@ -174,7 +227,12 @@ def test_run():
         '''
         c) Set all AC test source parameters to the nominal operating voltage and frequency 
         '''
-        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
+
+        if hil is not None and hil_setup == 'PHIL':
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
+
+        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': hil})  # Turn on AC so the EUT can be initialized
         if grid is not None:
             grid.freq(f_nom)
             if mode == 'Below':
@@ -197,9 +255,9 @@ def test_run():
 
         '''
         above_d) Adjust the EUT's available active power to Prated .
-        below_d) ""         ""          "". Set the EUT's output power to 50% of P rated .
+        below_d) ""         ""          "". Set the EUT's output power to 50% of P rated.
         '''
-        pv = pvsim.pvsim_init(ts)
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': hil})
         if pv is not None:
             pv.iv_curve_config(pmp=p_rated, vmp=v_nom_in)
             pv.irradiance_set(1000.)
@@ -207,9 +265,10 @@ def test_run():
             if eut is not None:
                 ts.log_debug("In Below mode, EUT's output power is set to 50%% of %s (Prated)" % p_rated)
                 eut.limit_max_power(params={
-                    'MaxLimWEna': True,
-                    'MaxLimW_PCT': 50
+                    'Ena': True,
+                    'WMaxPct': 50
                 })
+                ActiveFunction.reset_max_pwr_lim(50)
         """
         Test start
         """
@@ -217,7 +276,7 @@ def test_run():
         above_r) For EUT's that can absorb power, rerun Characteristic 1 allowing the unit to absorb power by
         programing a negative Pmin . 
 
-        below_p) ""                 ""                  "". Set the unit to absorb power at -50% of P rated . 
+        below_p) ""                 ""                  "". Set the unit to absorb power at -50% of P rated. 
         '''
         for absorb_power in absorb_powers:
             if absorb_power:
@@ -226,25 +285,25 @@ def test_run():
                         ts.log_debug("Config EUT's absorb power at -50%% of P rated")
                         eut.limit_max_power(
                             params={
-                            'MaxLimWEna': True,
-                            'MaxLimW_PCT': 50
+                            'Ena': True,
+                            'WMaxPct': 50
                             }
                         )
+                        ActiveFunction.reset_max_pwr_lim(50)
                     else:
                         ts.log_debug("Config EUT's absorb power to %s (P\'min)" % p_min_prime)
                         eut.limit_max_power(params={
-                            'MaxLimWEna': True,
-                            'MaxLimW': p_min_prime
+                            'Ena': True,
+                            'WMaxPct': (p_min_prime / p_rated) * 100
                         })
+                        ActiveFunction.reset_max_pwr_lim((p_min_prime / p_rated) * 100)
 
             '''
               above_q) Repeat steps b) through p) for Characteristic 2. 
 
               below_o) ""           ""              ""
             '''
-            if chil is not None:
-                    ts.log('Start simulation of CHIL')
-                    chil.start_simulation()
+
             for fw_curve in fw_curves:
                 ts.log('Starting test with characteristic curve %s' % (fw_curve))
                 ActiveFunction.reset_curve(curve=fw_curve)
@@ -275,9 +334,9 @@ def test_run():
                         params = {
                             'Ena': True,
                             'curve': fw_curve,
-                            'dbf': fw_param['dbf'],
-                            'kof': fw_param['kof'],
-                            'RspTms': fw_param['tr']
+                            'dbOF': fw_param['dbf'],
+                            'kOF': fw_param['kof'],
+                            'RspTms': fw_param['TR']
                         }
                         ts.log_debug(params)
                         settings = eut.freq_watt(params)
@@ -301,21 +360,21 @@ def test_run():
                     active power, reactive power, voltage,frequency, and current measurements. 
                     '''
                     # STD_CHANGE there should be a wait for steady state to be reached in both mode
+                    daq.data_capture(True)
                     step = 'Step F'
                     daq.sc['event'] = step
                     daq.data_sample()
                     ts.log('Wait for steady state to be reached')
                     ts.sleep(2 * fw_response_time[fw_curve])
-                    daq.data_capture(True)
 
-                    for step_label, f_step in f_steps_dict.items():
-                        ActiveFunction.start(daq=daq, step_label=step_label)
+                    for step_label, f_step in f_steps_dict.items(): # STEP G to STEP N  are in in p1547.py (Under FrequencyWatt)
+                        ActiveFunction.start( step_label=step_label)
                         ts.log('Frequency step: setting Grid simulator frequency to %s (%s)' % (f_step, step_label))
                         step_dict = {'F': f_step}
                         if grid is not None:
                             grid.freq(f_step)
-                        ActiveFunction.record_timeresponse(daq=daq)
-                        ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                        ActiveFunction.record_timeresponse()
+                        ActiveFunction.evaluate_criterias( step_dict=step_dict)
                         result_summary.write(ActiveFunction.write_rslt_sum())
 
                     dataset_filename = dataset_filename + ".csv"
@@ -357,8 +416,8 @@ def test_run():
             if f_nom is not None:
                 grid.voltage(f_nom)
             grid.close()
-        if chil is not None:
-            chil.close()
+        if hil is not None:
+            hil.close()
         if eut is not None:
             #eut.volt_var(params={'Ena': False})
             #eut.volt_watt(params={'Ena': False})
@@ -374,7 +433,19 @@ def test_run():
     return result
 
 def run(test_script):
+    """
+    Runs the test script.
 
+    This function is the entry point for the test script. It sets up the necessary global variables, logs debug information, and calls the `test_run()` 
+    function to execute the test. If any exceptions occur during the test, it logs the error and sets the return code to 1. 
+    
+
+    Parameters:
+        test_script (script.ScriptInfo): The test script object.
+
+    Returns:
+        int: The return code, 0 for success, 1 for failure.
+    """
     try:
         global ts
         ts = test_script
@@ -451,13 +522,12 @@ der.params(info)
 gridsim.params(info)
 pvsim.params(info)
 das.params(info)
-hil.params(info)
+hil_lib.params(info)
 
 # Add the SIRFN logo
 info.logo('sirfn.png')
 
 def script_info():
-    
     return info
 
 

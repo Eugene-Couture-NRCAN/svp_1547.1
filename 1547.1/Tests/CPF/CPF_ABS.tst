@@ -18,6 +18,9 @@
     <param name="eut.s_rated" type="float">10000.0</param>
     <param name="cpf.pf_min_inj" type="string">Disabled</param>
     <param name="cpf.pf_mid_inj" type="string">Disabled</param>
+    <param name="cpf.pf_min_ab" type="string">Disabled</param>
+    <param name="cpf.v_in_min" type="string">Disabled</param>
+    <param name="cpf.v_in_max" type="string">Disabled</param>
     <param name="der.mode" type="string">Disabled</param>
     <param name="gridsim.mode" type="string">Disabled</param>
     <param name="gridsim.auto_config" type="string">Disabled</param>
@@ -25,12 +28,10 @@
     <param name="das.mode" type="string">Disabled</param>
     <param name="hil.mode" type="string">Disabled</param>
     <param name="eut.imbalance_resp" type="string">EUT response to the average of the three-phase effective (RMS)</param>
-    <param name="cpf.pf_min_ab" type="string">Enabled</param>
     <param name="cpf.pf_mid_ab" type="string">Enabled</param>
     <param name="cpf.v_in_nom" type="string">Enabled</param>
-    <param name="cpf.v_in_min" type="string">Enabled</param>
-    <param name="cpf.v_in_max" type="string">Enabled</param>
     <param name="eut_cpf.sink_power" type="string">No</param>
+    <param name="hil.setup" type="string">PHIL</param>
     <param name="eut.phases" type="string">Single phase</param>
     <param name="cpf.imbalance_fix" type="string">std</param>
   </params>

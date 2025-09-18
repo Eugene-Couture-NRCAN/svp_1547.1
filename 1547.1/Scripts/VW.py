@@ -54,6 +54,24 @@ P = 'P'
 Q = 'Q'
 
 def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
+    """
+    Runs the Volt-Watt (VW) test script.
+    
+    This function is the main entry point for the VW test script. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.14.9 and 5.14.10 (unbalanced grid):
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.
+        2. Configures the EUT to disable all voltage trip parameters and other reactive/active power control functions.
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.
+        4. Adjusts the EUT's available active power to the rated value and sets the input voltage to the nominal value.
+        5. Enables the volt-watt mode and configures the EUT with the specified volt-watt curves.
+        6. Executes the test steps, including stepping the AC test source voltage and recording the steady-state response.
+            The setting tables for volt-watt are in the script p1547.py under the class VoltWatt.
+        7. Performs the volt-watt response time test by applying step changes in voltage and measuring the response time.
+        8. Saves the test results to a CSV file and creates a result workbook.
+    
+    """
 
     result = script.RESULT_FAIL
     daq = None
@@ -114,12 +132,10 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
 
         # initialize HIL environment, if necessary
         chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
         ts.log_debug(15*"*"+"PVSIM initialization"+15*"*")
 
         # pv simulator is initialized with test parameters and enabled
-        pv = pvsim.pvsim_init(ts)
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': chil})
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
@@ -141,10 +157,17 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
             daq.sc['event'] = 'None'
             ts.log('DAS device: %s' % daq.info())
 
+        ActiveFunction.set_daq(daq)
+
         '''
         b) Set all voltage trip parameters to the widest range of adjustability. Disable all reactive/active power
         control functions.
         '''
+
+        if chil is not None:
+            ts.log('Start simulation of CHIL')
+            chil.start_simulation()
+
         ts.log_debug(15*"*"+"EUT initialization"+15*"*")
 
         eut = der.der_init(ts, support_interfaces={'hil': chil}) 
@@ -215,27 +238,27 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
                     pv.iv_curve_config(pmp=pv_power_setting, vmp=v_in_nom)
                     pv.irradiance_set(1000.)
 
-                # Special considerations for CHIL ASGC/Typhoon startup #
-                if chil is not None:
-                    if eut is not None:
-                        if  eut.measurements() is not None:
-                            inv_power = eut.measurements().get('W')
-                            timeout = 120.
-                            if inv_power <= pv_power_setting * 0.85:
-                                pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
-                                ts.sleep(3)
-                                eut.connect(params={'Conn': True})
-                            while inv_power <= pv_power_setting * 0.85 and timeout >= 0:
-                                ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
-                                    (inv_power, timeout))
-                                ts.sleep(1)
-                                timeout -= 1
-                                inv_power = eut.measurements().get('W')
-                                if timeout == 0:
-                                    result = script.RESULT_FAIL
-                                    raise der.DERError('Inverter did not start.')
-                            ts.log('Waiting for EUT to ramp up')
-                            ts.sleep(8)
+                # # Special considerations for CHIL ASGC/Typhoon startup #
+                # if chil is not None:
+                #     if eut is not None:
+                #         if  eut.measurements() is not None:
+                #             inv_power = eut.measurements().get('W')
+                #             timeout = 120.
+                #             if inv_power <= pv_power_setting * 0.85:
+                #                 pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
+                #                 ts.sleep(3)
+                #                 eut.connect(params={'Conn': True})
+                #             while inv_power <= pv_power_setting * 0.85 and timeout >= 0:
+                #                 ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
+                #                     (inv_power, timeout))
+                #                 ts.sleep(1)
+                #                 timeout -= 1
+                #                 inv_power = eut.measurements().get('W')
+                #                 if timeout == 0:
+                #                     result = script.RESULT_FAIL
+                #                     raise der.DERError('Inverter did not start.')
+                #             ts.log('Waiting for EUT to ramp up')
+                #             ts.sleep(8)
 
                 '''
                 e) Set EUT volt-watt parameters to the values specified by Characteristic 1. All other functions should
@@ -257,13 +280,11 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
                     f) Verify volt-watt mode is reported as active and that the correct characteristic is reported.
                     '''
                     ts.log_debug('Initial EUT VW settings are %s' % eut.volt_watt())
-                if chil is not None:
-                    ts.log('Start simulation of CHIL')
-                    chil.start_simulation()
+
                 '''
                 Refer to P1547 Library and IEEE1547.1 standard for steps 
                 '''
-                v_steps_dict = ActiveFunction.create_vw_dict_steps()
+                v_steps_dict = ActiveFunction.create_vw_dict_steps()              
 
                 # Configure the data acquisition system
                 ts.log('Starting data capture for power = %s' % power)
@@ -274,14 +295,14 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
 
                 for step_label, v_step in v_steps_dict.items():
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_step, step_label))
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start(step_label=step_label)                                             # STEP G  --->  STEP S
 
                     step_dict = {'V': v_step}
                     if grid is not None:
                         grid.voltage(step_dict['V'])
 
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias(step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 # create result workbook
@@ -335,6 +356,23 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls):
 
 
 def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
+    """
+    Runs the Volt-Watt (VW) test script.
+    
+    This function is the main entry point for the VW on an imbalanced gridtest script . It handles the overall test flow, 
+    including initializing the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.14.9 and 5.14.10 (unbalanced grid):
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.
+        2. Configures the EUT to disable all voltage trip parameters and other reactive/active power control functions.
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.
+        4. Adjusts the EUT's available active power to the rated value and sets the input voltage to the nominal value.
+        5. Enables the volt-watt mode and configures the EUT with the specified volt-watt curves.
+        6. Executes the test steps, including stepping the AC test source voltage and recording the steady-state response.
+        7. Performs the volt-watt response time test by applying step changes in voltage and measuring the response time.
+        8. Saves the test results to a CSV file and creates a result workbook.
+   
+    """
 
     result = script.RESULT_FAIL
     daq = None
@@ -388,8 +426,6 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
 
         # initialize HIL environment, if necessary
         chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
         ts.log_debug(15*"*"+"GRIDSIM initialization"+15*"*")
         # grid simulator is initialized with test parameters and enabled
         grid = gridsim.gridsim_init(ts, support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
@@ -543,11 +579,11 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator to case A (IEEE 1547.1-Table 24)(%s)' % step_label)
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start(step_label=step_label)
                     v_target=ActiveFunction.set_grid_asymmetric(grid=grid, case='case_a')
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
                 '''
                 Step i) For multiphase units, step the AC test source voltage to VN.
@@ -555,12 +591,12 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step_label))
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start(step_label=step_label)
                     v_target = v_nom
                     grid.voltage(v_target)
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 '''
@@ -569,11 +605,11 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator to case B (IEEE 1547.1-Table 24)(%s)' % step_label)
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start(step_label=step_label)
                     v_target=ActiveFunction.set_grid_asymmetric(grid=grid, case='case_b')
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
                 '''
                 Step k) For multiphase units, step the AC test source voltage to VN.
@@ -581,12 +617,12 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step_label))
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start(step_label=step_label)
                     v_target = v_nom
                     grid.voltage(v_target)
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias(step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 # Get the rslt parameters for plot
@@ -632,7 +668,14 @@ def volt_watt_mode_imbalanced_grid(imbalance_resp, vw_curves, vw_response_time):
 
 
 def test_run():
+    """
+    Runs the Volt-Watt (VW) test script or the Volt-Watt (VW) test script with imbalance grid.
+    
 
+    return:
+    -------
+        The function returns the overall test result (RESULT_COMPLETE or RESULT_FAIL).
+    """
     result = script.RESULT_FAIL
 
     try:
@@ -706,7 +749,19 @@ def test_run():
 
 
 def run(test_script):
+    """
+    Runs the test script.
 
+    This function is the entry point for the test script. It sets up the necessary global variables, logs debug information, and calls the `test_run()` 
+    function to execute the test. If any exceptions occur during the test, it logs the error and sets the return code to 1. 
+    
+
+    Parameters:
+        test_script (script.ScriptInfo): The test script object.
+
+    Returns:
+        int: The return code, 0 for success, 1 for failure.
+    """
     try:
         global ts
         ts = test_script

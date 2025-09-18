@@ -37,7 +37,7 @@ from svpelab import loadsim
 from svpelab import pvsim
 from svpelab import das
 from svpelab import der
-from svpelab import hil
+from svpelab import hil as hil_lib
 from svpelab import p1547
 import script
 from svpelab import result as rslt
@@ -50,6 +50,79 @@ import math
 
 
 def test_run():
+    """
+    Runs the Constant Power Factor (CPF) test script.
+    
+    This function is the main entry point for the CPF test script. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.14.3.2 :
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.  
+        2. Configures the EUT to disable all voltage trip parameters and reactive/active power control functions.      
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.                           
+        4. Adjusts the EUT's available active power to the rated value and sets the input voltage to the nominal value.
+        5. Enables the constant power factor mode and sets the EUT power factor to the specified values (PFmin,inj, PFmin,ab, PFmid,inj, PFmid,ab).
+        6. Executes the test steps, including stepping the EUT's active power, stepping the AC test source voltage, and recording the time-domain response.
+        7. Disables the constant power factor mode and verifies that the power factor returns to unity.
+        8. Saves the test results to a CSV file and creates a result workbook.
+    
+    The function returns the overall test result (RESULT_COMPLETE or RESULT_FAIL).
+    """
+      
+
+
+    """
+    Table 8 - Voltage-reactive power settings for normal operating performance Category A and Category B DER
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    | Voltage-       |            Default settings           |     Ranges of allowable settings      |
+    | reactive power +-------------------+-------------------+-------------------+-------------------+
+    | parameters     |    Category A     |    Category B     |     Minimum       |     Maximum       |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |      VRef      |        VN         |         VN        |    0.95 VN        |     1.05 VN       |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       V2       |        VN         | VRef - 0.02 VN    | Category A: VRef  |      VRef c       |
+    |                |                   |                   | Category B:       |                   |
+    |                |                   |                   | VRef - 0.03 VN    |                   |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       Q2       |        0          |         0         | 100% of nameplate | 100% of nameplate |
+    |                |                   |                   | reactive power    | reactive power    |
+    |                |                   |                   | capability,       | capability,       |
+    |                |                   |                   | absorption        | injection         |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       V3       |        VN         | VRef + 0.02 VN    |       VRef c      | Category A: VRef  |
+    |                |                   |                   |                   | Category B:       |
+    |                |                   |                   |                   | VRef + 0.03 VN    |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       Q3       |         0         |         0         | 100% of nameplate | 100% of nameplate |
+    |                |                   |                   | reactive power    | reactive power    |
+    |                |                   |                   | capability,       | capability,       |
+    |                |                   |                   | absorption        | injection         |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       V1       |       0.9 VN      | VRef - 0.08 VN    | VRef - 0.18 VN    | V2 - 0.02 VN c    |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |      Q1 a      | 25% of nameplate  | 44% of nameplate  |         0         | 100% of nameplate |
+    |                | apparent power    | apparent power    |                   | reactive power    |
+    |                | rating, injection | rating, injection |                   | capability,       |
+    |                |                   |                   |                   | injection b       |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       V4       |      1.1 VN       | VRef + 0.08 VN    |  V3 + 0.02 VN c   | VRef + 0.18 VN    |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    |       Q4       | 25% of nameplate  | 44% of nameplate  | 100% of nameplate | 0                 |
+    |                | apparent power    | apparent power    | reactive power    |                   |
+    |                | rating,           | rating,           | capability,       |                   |
+    |                | absorption        | absorption        | absorption        |                   |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+    | Open loop      |       10 s        |       5 s         |         1 s       |     90 s          |
+    | response time  |                   |                   |                   |                   |
+    +----------------+-------------------+-------------------+-------------------+-------------------+
+
+    Notes:
+    a. For Q1
+    b. For injection capability
+    c. For certain voltage parameters
+
+    VN = Nominal Voltage
+    """
 
     result = script.RESULT_FAIL
     grid = None
@@ -57,7 +130,7 @@ def test_run():
     daq = None
     eut = None
     rs = None
-    chil = None
+    hil = None
     result_summary = None
     step = None
     q_initial = None
@@ -66,6 +139,8 @@ def test_run():
 
 
     try:
+
+        # Define the parameters
 
         cat = ts.param_value('eut.cat')
         cat2 = ts.param_value('eut.cat2')
@@ -146,17 +221,19 @@ def test_run():
         a) Connect the EUT according to the instructions and specifications provided by the manufacturer.
         """
         # initialize HIL environment, if necessary
-        chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
+        hil = hil_lib.hil_init(ts)
+
+        if hil is not None:
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
 
         # grid simulator is initialized with test parameters and enabled
-        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
+        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': hil})  # Turn on AC so the EUT can be initialized
         if grid is not None:
             grid.voltage(v_nom)
 
         # pv simulator is initialized with test parameters and enabled
-        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': chil}) 
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': hil}) 
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
@@ -164,7 +241,7 @@ def test_run():
         # DAS soft channels
         das_points = ActiveFunction.get_sc_points()
         # initialize data acquisition
-        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': chil})
+        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': hil})
 
         if daq is not None:
             daq.sc['V_MEAS'] = 120
@@ -176,18 +253,19 @@ def test_run():
             daq.sc['event'] = 'None'
             ts.log('DAS device: %s' % daq.info())
 
+        ActiveFunction.set_daq(daq)
         """
         b) Set all voltage trip parameters to the widest range of adjustability. Disable all reactive/active power
         control functions.
         """
         # it is assumed the EUT is on
-        eut = der.der_init(ts, support_interfaces={'hil': chil})
+        eut = der.der_init(ts, support_interfaces={'hil': hil})
         if eut is not None:
             eut.config()
             ts.log_debug('If not done already, set L/HVRT and trip parameters to the widest range of adjustability.')
 
-        # Special considerations for CHIL ASGC/Typhoon startup #
-        if chil is not None:
+        # Special considerations for hil ASGC/Typhoon startup #
+        if hil is not None:
             if eut.measurements() is not None:
                 inv_power = eut.measurements().get('W')
                 timeout = 120.
@@ -269,9 +347,6 @@ def test_run():
                     eut.fixed_pf(params=parameters)
                     pf_setting = eut.fixed_pf()
                     ts.log('PF setting read: %s' % pf_setting)
-                if chil is not None:
-                    ts.log('Start simulation of CHIL')
-                    chil.start_simulation()
                 daq.data_capture(True)
 
                 """
@@ -293,11 +368,11 @@ def test_run():
                 if pv is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Power step: setting PV simulator power to %s (%s)' % (p_min,step))
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     step_dict = {'V': v_nom, 'P': p_min, 'PF': pf_target}
                     pv.power_set(step_dict['P'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 """
@@ -306,11 +381,11 @@ def test_run():
                 if pv is not None:
                     step = ActiveFunction.get_step_label()
                     ts.log('Power step: setting PV simulator power to %s (%s)' % (p_rated,step))
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     step_dict = {'V': v_nom, 'P': p_rated, 'PF': pf_target}
                     pv.power_set(step_dict['P'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 if grid is not None:
@@ -318,31 +393,31 @@ def test_run():
                     # i) Step the AC test source voltage to (VL + av)
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % ((v_min + a_v), step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     step_dict = {'V': v_min + a_v, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                     #   j) Step the AC test source voltage to (VH - av)
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % ((v_max - a_v),step))
-                    ActiveFunction.start(daq=daq, step_label=step)
-                    step_dict = {'V': v_min - a_v, 'P': p_rated, 'PF': pf_target}
+                    ActiveFunction.start( step_label=step)
+                    step_dict = {'V': v_max - a_v, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                     #   k) Step the AC test source voltage to (VL + av)
                     step = ActiveFunction.get_step_label()
-                    ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_min, step))
+                    ActiveFunction.start( step_label=step)
                     step_dict = {'V': v_min + a_v, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 ts.log_debug(f'Phase={phases}')
@@ -353,11 +428,11 @@ def test_run():
                     """
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     step_dict = {'V': v_nom, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 if grid is not None and phases == 'Three phase':
@@ -366,11 +441,11 @@ def test_run():
                     """
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     v_target = ActiveFunction.set_grid_asymmetric(grid=grid, case='case_a')
                     step_dict = {'V': v_target , 'P': p_rated, 'PF': pf_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
                 """
                 n) For multiphase units, step the AC test source voltage to VN.
@@ -379,11 +454,11 @@ def test_run():
                 if grid is not None and phases == 'Three phase':
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     step_dict = {'V': v_nom, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 '''
@@ -392,11 +467,11 @@ def test_run():
                 if grid is not None and phases == 'Three phase':
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator to case B (IEEE 1547.1-Table 24)(%s)' % step)
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     v_target = ActiveFunction.set_grid_asymmetric(grid=grid, case='case_b')
                     step_dict = {'V': v_target, 'P': p_rated, 'PF': pf_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
 
@@ -408,11 +483,11 @@ def test_run():
                 if grid is not None and phases == 'Three phase':
                     step = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
-                    ActiveFunction.start(daq=daq, step_label=step)
+                    ActiveFunction.start( step_label=step)
                     step_dict = {'V': v_nom, 'P': p_rated, 'PF': pf_target}
                     grid.voltage(step_dict['V'])
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
 
@@ -488,8 +563,8 @@ def test_run():
             eut.close()
         if rs is not None:
             rs.close()
-        if chil is not None:
-            chil.close()
+        if hil is not None:
+            hil.close()
 
         if result_summary is not None:
             result_summary.close()
@@ -501,8 +576,21 @@ def test_run():
 
     return result
 
-def run(test_script):
 
+def run(test_script):
+    """
+    Runs the test script.
+
+    This function is the entry point for the test script. It sets up the necessary global variables, logs debug information, and calls the `test_run()` 
+    function to execute the test. If any exceptions occur during the test, it logs the error and sets the return code to 1. 
+    
+
+    Parameters:
+        test_script (script.ScriptInfo): The test script object.
+
+    Returns:
+        int: The return code, 0 for success, 1 for failure.
+    """
     try:
         global ts
         ts = test_script
@@ -589,11 +677,10 @@ der.params(info)
 gridsim.params(info)
 pvsim.params(info)
 das.params(info)
-hil.params(info)
+hil_lib.params(info)
 
 
-def script_info():
-    
+def script_info():   
     return info
 
 

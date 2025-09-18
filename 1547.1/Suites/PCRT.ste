@@ -1,8 +1,6 @@
-<suite globals="True" name="FRT">
+<suite globals="True" name="PCRT">
   <members>
-    <member name="FRT/LFRT.tst" />
-    <member name="FRT/HFRT.tst" />
-    <member name="FRT/LFRT_2.tst" />
+    <member name="PCRT/PCRT_1.tst" />
   </members>
   <params>
     <param name="eut.offset_current" type="string">0,0,0</param>
@@ -25,7 +23,6 @@
     <param name="pvsim.mode" type="string">Disabled</param>
     <param name="das.mode" type="string">Disabled</param>
     <param name="hil.mode" type="string">Disabled</param>
-    <param name="hil.setup" type="string">PHIL</param>
     <param name="eut.phases" type="string">Single phase</param>
   </params>
 </suite>
