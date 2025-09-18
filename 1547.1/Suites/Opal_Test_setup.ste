@@ -1,0 +1,68 @@
+<suite globals="True" name="Opal_Test_setup">
+  <members>
+    <member name="CPF.ste" />
+    <member name="CRP.ste" />
+    <member name="FRT.ste" />
+    <member name="FW.ste" />
+    <member name="LAP.ste" />
+    <member name="PCRT.ste" />
+    <member name="PRI.ste" />
+    <member name="VRT.ste" />
+    <member name="VV.ste" />
+    <member name="VW.ste" />
+    <member name="WV.ste" />
+  </members>
+  <params>
+    <param name="eut_fw.p_small" type="float">0.05</param>
+    <param name="gridsim.opal.phases" type="int">3</param>
+    <param name="gridsim.opal.vout_scale" type="string">3.0,3.0,3.0</param>
+    <param name="der.Opal.sec_crtl_frz_time" type="string">5.0</param>
+    <param name="gridsim.opal.vin_scale" type="string">20.0,20.0,20.0</param>
+    <param name="pvsim.Opal.temp" type="float">25.0</param>
+    <param name="gridsim.opal.f_min" type="float">45.0</param>
+    <param name="eut.f_min" type="float">56.0</param>
+    <param name="eut.f_nom" type="float">60.0</param>
+    <param name="gridsim.opal.freq" type="float">60.0</param>
+    <param name="eut.f_max" type="float">66.0</param>
+    <param name="gridsim.opal.f_max" type="float">70.0</param>
+    <param name="eut.v_low" type="float">116.0</param>
+    <param name="eut.v_nom" type="float">120.0</param>
+    <param name="gridsim.opal.v_nom" type="float">120.0</param>
+    <param name="eut.v_high" type="float">132.0</param>
+    <param name="das.opal.sample_interval" type="int">200</param>
+    <param name="eut_cpf.v_in_min" type="int">300</param>
+    <param name="gridsim.opal.v_max" type="float">300.0</param>
+    <param name="eut_crp.v_in_min" type="int">300</param>
+    <param name="eut.v_in_nom" type="int">400</param>
+    <param name="eut_cpf.v_in_max" type="int">500</param>
+    <param name="eut_crp.v_in_max" type="int">500</param>
+    <param name="eut.p_min" type="float">1000.0</param>
+    <param name="pvsim.Opal.irr" type="float">1200.0</param>
+    <param name="eut.var_rated" type="float">2200.0</param>
+    <param name="hil.opal.hil_stop_time" type="float">3600.0</param>
+    <param name="eut.s_rated" type="float">5000.0</param>
+    <param name="eut.p_rated" type="float">5000.0</param>
+    <param name="gridsim.opal.cin_scale" type="string">-3.32567,-3.33400,-3.327</param>
+    <param name="das.opal.record_mode" type="string">Build-in</param>
+    <param name="hil.opal.project_dir_path" type="string">C:\path\to\file.llp</param>
+    <param name="das.opal.data_name" type="string">Data.mat</param>
+    <param name="gridsim.auto_config" type="string">Disabled</param>
+    <param name="eut.imbalance_resp" type="string">EUT response to the average of the three-phase effective (RMS)</param>
+    <param name="hil.opal.rt_mode" type="string">Hardware</param>
+    <param name="das.opal.wfm_chan_list" type="string">IEEE1547_VRT</param>
+    <param name="hil.opal.rt_lab_model" type="string">IEEE_1547_Testing_PHIL</param>
+    <param name="eut_cpf.sink_power" type="string">No</param>
+    <param name="eut_crp.sink_power" type="string">No</param>
+    <param name="eut_fw.absorb" type="string">No</param>
+    <param name="eut_vw.sink_power" type="string">No</param>
+    <param name="der.mode" type="string">Opal</param>
+    <param name="gridsim.mode" type="string">Opal</param>
+    <param name="pvsim.mode" type="string">Opal</param>
+    <param name="das.mode" type="string">Opal</param>
+    <param name="hil.mode" type="string">Opal-RT</param>
+    <param name="das.opal.map" type="string">Opal_Fast_1547</param>
+    <param name="hil.setup" type="string">PHIL</param>
+    <param name="hil.opal.target_name" type="string">RTServer</param>
+    <param name="eut.phases" type="string">Three phase</param>
+  </params>
+</suite>

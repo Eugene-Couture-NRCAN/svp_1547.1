@@ -19,6 +19,8 @@
     <param name="crp.q_max_abs_enable" type="string">Disabled</param>
     <param name="crp.q_max_inj_enable" type="string">Disabled</param>
     <param name="crp.half_q_max_inj_enable" type="string">Disabled</param>
+    <param name="crp.v_in_min" type="string">Disabled</param>
+    <param name="crp.v_in_max" type="string">Disabled</param>
     <param name="der.mode" type="string">Disabled</param>
     <param name="gridsim.mode" type="string">Disabled</param>
     <param name="gridsim.auto_config" type="string">Disabled</param>
@@ -28,9 +30,8 @@
     <param name="eut.imbalance_resp" type="string">EUT response to the average of the three-phase effective (RMS)</param>
     <param name="crp.half_q_max_abs_enable" type="string">Enabled</param>
     <param name="crp.v_in_nom" type="string">Enabled</param>
-    <param name="crp.v_in_min" type="string">Enabled</param>
-    <param name="crp.v_in_max" type="string">Enabled</param>
     <param name="eut_crp.sink_power" type="string">No</param>
+    <param name="hil.setup" type="string">PHIL</param>
     <param name="eut.phases" type="string">Single phase</param>
     <param name="crp.imbalance_fix" type="string">std</param>
   </params>

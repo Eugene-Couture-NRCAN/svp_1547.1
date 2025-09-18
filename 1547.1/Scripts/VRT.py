@@ -38,7 +38,7 @@ from svpelab import loadsim
 from svpelab import pvsim
 from svpelab import das
 from svpelab import der
-from svpelab import hil
+from svpelab import hil as hil_lib
 from svpelab import p1547
 import script
 from svpelab import result as rslt
@@ -59,14 +59,64 @@ CAT_2 = 'CAT_2'
 CAT_3 = 'CAT_3'
 
 
+
 def test_run():
+    """
+    The `test_run()` function is the main entry point for the voltage ride-through (VRT) test. 
+    It verifies the ability of the EUT to ride through sudden voltage changes without tripping 
+    in accordance with the requirements in 6.4.2 of IEEE Std 1547-2018.
+
+    This function initializes the necessary test equipment and components, configures the test parameters, 
+    runs the VRT test sequence, and captures the test data. It supports both hardware-in-the-loop (HIL) and 
+    software-in-the-loop (SIL) testing environments.
+
+    The function tests various VRT modes, power levels, and phase combinations as specified in the test parameters.
+    It also configures and enables the voltage-reactive power control mode of the EUT as required by the standard.
+
+    The function returns the overall test result, which can be either `script.RESULT_COMPLETE` or `script.RESULT_FAIL`.
+    """
+
+
+    """
+    Table 5 - Category III LVRT test conditions
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    | Test condition | Residual voltage  | Minimum           | Time               | Required DER mode     |
+    |                | (p.u.)            | durationa         | interval in        | of operationb         |
+    |                |                   | (s)               | Figure 1           |                       |
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    |       A        | 0.88-1.00         | 5                 | t0-t1              | Continuous Operation  |
+    +----------------+-------------------+-------------------+--------------------+----------------------+
+    |       B        | 0.00-0.05         | 1                 | t1-t2              | Permissive Operation e|
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    |       C        | 0.00-0.50         | 10                | t1-t3              | Mandatory Operation c |
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    |       C'       | 0.52-0.70         | 10                | t1-t3              | Mandatory Operation d |
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    |       D        | 0.50-0.70         | 20                | t1-t4              | Mandatory Operation   |
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+    |       E        | 0.88-1.00         | 120               | t4-t5              | Continuous Operation  |
+    +----------------+-------------------+-------------------+--------------------+-----------------------+
+
+    a The minimum duration times are cumulative including all prior test conditions in the sequence at the same or
+    lower magnitude.
+    b During each test condition specified in column 1, the EUT is required to operate in the mode shown in column 5.
+    c If during test condition B the EUT ceases to energize, then the EUT may remain in cease to energize mode for
+    voltages less than 0.70 p.u.
+    d If the EUT ceases to energize during test condition B, test condition C' shall be used to evaluate restore output
+    performance per 6.4.2.7 of IEEE Std 1547-2018 if this cannot be determined by test condition D. The residual
+    voltage shall be high enough that any voltage oscillations remain above 0.72 p.u.
+    e This test intentionally violates the cease to energize operating mode specified in IEEE Std 1547 to verify the
+    EUT's ability to ride through with trip settings adjusted so as not to cause tripping during the test. The cease to
+    energize and trip behavior is tested separately in 5.4.3.
+    """
+
     result = script.RESULT_FAIL
     grid = None
     pv = p_rated = None
     daq = None
     eut = None
     rs = None
-    phil = None
+    hil = None
     result_summary = None
     step = None
     q_initial = None
@@ -111,6 +161,7 @@ def test_run():
         absorb['p_rated_prime'] = ts.param_value('eut_cpf.p_rated_prime')
         absorb['p_min_prime'] = ts.param_value('eut_cpf.p_min_prime')
 
+
         # Following parameters are collected in p1547.VoltageRideThrough.set_vrt_params in init:
         # vrt.lv_ena, vrt.hv_ena, vrt.consecutive_ena, vrt.cat, vrt.range_steps
         consecutive_ena = ts.param_value('vrt.consecutive_ena')
@@ -123,12 +174,14 @@ def test_run():
 
         if ts.param_value('vrt.one_phase_mode') == "Enabled":
             phase_comb_list.append([ts.param_value('vrt.one_phase_value')])
-        
+
         if ts.param_value('vrt.two_phase_mode') == "Enabled":
             phase_comb_list.append([ts.param_value('vrt.two_phase_value_1'),ts.param_value('vrt.two_phase_value_2')])
 
         if ts.param_value('vrt.three_phase_mode') == "Enabled":
             phase_comb_list.append(['A', 'B', 'C'])
+
+
 
         # Functions to be enabled for test
         mode = []
@@ -141,29 +194,38 @@ def test_run():
         # initialize HIL environment, if necessary
         ts.log_debug(15 * "*" + "HIL initialization" + 15 * "*")
 
-        phil = hil.hil_init(ts)
-        if phil is not None:
-            # return self.ts.param_value(self.group_name + '.' + GROUP_NAME + '.' + name)
-            open_proj = phil._param_value('hil_config_open')
-            compilation = phil._param_value('hil_config_compile')
-            stop_sim = phil._param_value('hil_config_stop_sim')
-            load = phil._param_value('hil_config_load')
-            execute = phil._param_value('hil_config_execute')
-            model_name = phil._param_value('hil_config_model_name')
-            phil.config()
+        hil = hil_lib.hil_init(ts)
+        hil_setup = ts.params['hil.setup']
+
+        if hil is not None and hil_setup == 'SIL':
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
 
         ''' RTLab OpWriteFile Math using worst case scenario of 160 seconds, 14 signals and Ts = 40e-6
-        Duration of acquisition in number of points: Npoints = (Tend-Tstart)/(Ts*dec) = (350)/(0.000040*25) = 1350e3
+
+        Duration of acquisition in number of points: 
         
-        Acquisition frame duration: Tframe = Nbss * Ts * dec = 1000*0.000040*250 = 10 sec
+                Npoints = (Tend-Tstart)/(Ts*dec) 
+                        = (    350    )/(0.000040*25) = 1350e3
+
+        Acquisition frame duration: 
+
+                Tframe = Nbss * Ts * dec = 1000*0.000040*250 = 10 sec
+
+        Number of buffers to be acquired: 
         
-        Number of buffers to be acquired: Nbuffers = Npoints / Nbss = (Tend - Tstart) / Tframe = 16
+                Nbuffers = Npoints / Nbss 
+                         = (Tend - Tstart) / Tframe = 16
+
+        Minimum file size: 
         
-        Minimum file size: MinSize= Nbuffers x SizeBuf = [(Tend - Tstart) / Ts ] * (Nsig+1) * 8 * Nbss 
-            = (160/40e-6)*(14+1)*8*1000 = 4.8e11
-        
-        SizeBuf = 1/Nbuffers * {[(Tend - Tstart) / Ts ]*(Nsig+1)*8*Nbss} = [(160/0.000040)*(14+1)*8*1e3]/16 = 30e9
-        Size of one buffer in bytes (SizeBuf) = (Nsig+1) * 8 * Nbss (Minimum) = (14+1)*8*1000 = 120e3
+                MinSize= Nbuffers x SizeBuf = [(Tend  - Tstart) / Ts   ] * (Nsig+1) * 8 * Nbss
+                                            = [(     160      ) / 40e-6] * (14 + 1) * 8 * 1000 = 4.8e11
+ 
+                SizeBuf =  1/Nbuffers * {[(Tend - Tstart) / Ts ] * (Nsig+1) * 8 * Nbss} 
+                        =  1/0.000040 * {[(160          ) /16  ] * (14 + 1) * 8 * 1000} = 30e9
+        Size of one buffer in bytes (SizeBuf) = (Nsig+1) * 8 * Nbss (Minimum) 
+                                              = (14 + 1) * 8 * 1000 = 120e3
         '''
 
         if low_pwr_ena == 'Enabled':
@@ -177,41 +239,37 @@ def test_run():
         if high_pwr_ena == 'Disabled' and low_pwr_ena == 'Disabled':
             ts.log_error('No power tests included in VRT test!')
 
-        if ts.param_value('vrt.wav_ena') == "Yes" :
-            wav_ena = True
-        else :
-            wav_ena = False
-        if ts.param_value('vrt.data_ena') == "Yes" :
-            data_ena = True
-        else :
-            data_ena = False
+
         """
         Configure settings in 1547.1 Standard module for the Voltage Ride Through Tests
         """
-        VoltRideThrough = p1547.VoltageRideThrough(ts=ts, support_interfaces={"hil": phil})
+        VoltRideThrough = p1547.VoltageRideThrough(ts, support_interfaces={"hil": hil})
         # result params
         # result_params = lib_1547.get_rslt_param_plot()
         # ts.log(result_params
 
+        if hil is not None and hil_setup == 'PHIL':
+            ts.log('Start simulation of phil')
+            hil.start_simulation()
+
         # grid simulator is initialized with test parameters and enabled
         ts.log_debug(15 * "*" + "Gridsim initialization" + 15 * "*")
-        grid = gridsim.gridsim_init(ts, support_interfaces={"hil": phil})  # Turn on AC so the EUT can be initialized
+        grid = gridsim.gridsim_init(ts, support_interfaces={"hil": hil})  # Turn on AC so the EUT can be initialized
         if grid is not None:
-            grid.voltage(v_nom)  
+            grid.voltage(v_nom)
 
         # pv simulator is initialized with test parameters and enabled
         ts.log_debug(15 * "*" + "PVsim initialization" + 15 * "*")
-        pv = pvsim.pvsim_init(ts)
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': hil})
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
 
         # initialize data acquisition
         ts.log_debug(15 * "*" + "DAS initialization" + 15 * "*")
-        daq = das.das_init(ts, support_interfaces={"hil": phil, "pvsim": pv})
-        daq.waveform_config({"mat_file_name":"Data.mat",
+        daq = das.das_init(ts, support_interfaces={"hil": hil})
+        daq.waveform_config({"mat_file_name": "Data.mat",
                             "wfm_channels": VoltRideThrough.get_wfm_file_header()})
-
         if daq is not None:
             daq.sc['V_MEAS'] = 100
             """
@@ -224,8 +282,21 @@ def test_run():
             ts.log('DAS device: %s' % daq.info())
             """
 
+        if ts.param_value('vrt.wav_ena') == "Yes" :
+            wav_ena = True
+            if hil is not None:
+                daq.data_capture(wav_ena)
+        else :
+            wav_ena = False
+        if ts.param_value('vrt.data_ena') == "Yes" :
+            data_ena = True
+        else :
+            data_ena = False
+
+        VoltRideThrough.set_daq(daq)
+
         """
-        This test doesn't have specific procedure steps. 
+        This test doesn't have specific procedure steps.
         """
 
         # open result summary file
@@ -236,14 +307,14 @@ def test_run():
 
         """
         During the LVRT test, the settings for magnitude and duration of undervoltage tripping functions shall be
-        disabled or set so as not to influence the outcome of the test. 
-        
-        If the EUT provides a voltage-active power control mode, that mode shall be disabled. 
-        
+        disabled or set so as not to influence the outcome of the test.
+
+        If the EUT provides a voltage-active power control mode, that mode shall be disabled.
+
         Connect the EUT according to the instructions and specifications provided by the manufacturer.
         """
         # Wait to establish communications with the EUT after AC and DC power are provided
-        eut = der.der_init(ts, support_interfaces={'hil': phil}) 
+        eut = der.der_init(ts, support_interfaces={'hil': hil})
 
         # start = time.time()
         # comm_wait_time = max(0.0, startup_time - 60.)
@@ -254,11 +325,11 @@ def test_run():
 
         if eut is not None:
             eut.config()
-            
+
         # if eut is not None:
         #     eut.deactivate_all_fct()
 
-    
+
 
         # Initial loop for all mode that will be executed
         modes = VoltRideThrough.get_modes()  # Options: LV_CAT_2, HV_CAT_2, LV_CAT_3, HV_CAT_3
@@ -272,12 +343,16 @@ def test_run():
             The ride-through tests shall be performed at two output power levels, high and low, and at any convenient
             power factor greater than 0.90. The output power levels shall be measured prior to the disturbance, i.e., in
             test condition A. High-power tests shall be performed at any active power level greater than 90% of the
-            EUT nameplate active power rating at nominal voltage. ... Low-power tests shall be performed at any 
+            EUT nameplate active power rating at nominal voltage. ... Low-power tests shall be performed at any
             convenient power level between 25% to 50% of EUT nameplate  apparent power rating at nominal voltage.
             """
-            for pwr in pwr_lvl:  
-                for phase in phase_comb_list :  
-             
+            for pwr in pwr_lvl:
+                for phase in phase_comb_list :
+                    if hil.model_state() != 'Model Running':
+                        ts.log('Start simulation of hil')
+                        hil.config()
+                        hil.start_simulation()
+
                     phase_combination_label = "PH" + ''.join(phase)
 
                     dataset_filename = f'{current_mode}_{round(pwr*100)}PCT_{phase_combination_label}_{consecutive_label}'
@@ -286,33 +361,30 @@ def test_run():
                         daq.data_capture(True)
 
                     """
-                    Setting up available power to appropriate power level 
+                    Setting up available power to appropriate power level
                     """
                     if pv is not None:
                         ts.log_debug(f'Setting power level to {pwr}')
                         pv.iv_curve_config(pmp=p_rated, vmp=v_nom_in)
-                        pv.irradiance_set(1000.)
-                        pv.power_set(p_rated * pwr)
-                        
+                        pv.irradiance_set(1100.)
+                        #pv.power_set(p_rated * pwr)
+
+
                     """
                     Initiating voltage sequence for VRT
                     """
                     vrt_test_sequences = VoltRideThrough.set_test_conditions(current_mode)
                     VoltRideThrough.set_phase_combination(phase)
                     vrt_stop_time = VoltRideThrough.get_vrt_stop_time(vrt_test_sequences)
-                    if phil is not None:
+                    if hil is not None:
                         # Set model parameters
-                        #phil.set_parameters(vrt_parameters)
+                        #hil.set_parameters(vrt_parameters)
                         # This adds 5 seconds of nominal behavior for EUT normal shutdown. This 5 sec is not recorded.
                         vrt_stop_time = vrt_stop_time + 5
-                        ts.log('Stop time set to %s' % phil.set_stop_time(vrt_stop_time))
-                        # The driver should take care of this by selecting "Yes" to "Load the model to target?"
-                        ts.sleep(2.0)
-                        phil.load_model_on_hil()
-                        # You need to first load the model, then configure the parameters
+                        ts.log('Stop time set to %s' % hil.set_stop_time(vrt_stop_time))
                         # Now that we have all the test_sequences its time to sent them to the model.
                         VoltRideThrough.set_vrt_model_parameters(vrt_test_sequences)
-                                        
+
                         """
                         The voltage-reactive power control mode of the EUT shall be set to the default settings specified in Table 8
                         of IEEE Std 1547-2018 for the applicable performance category, and enabled.
@@ -345,28 +417,31 @@ def test_run():
                             eut.volt_var(params={'Ena': True, 'ACTCRV': vv_curve, 'curve': vv_curve_params})
                             ts.log_debug('Initial EUT VV settings are %s' % eut.volt_var())
 
-                        # The driver parameter "Execute the model on target?" should be set to "No"
-                        phil.start_simulation() 
-                        ts.sleep(0.5)
-                        sim_time = phil.get_time()
+                        #ts.sleep(0.5)
+                        if pv is not None:
+                            ts.log_debug(f'Setting power level to {pwr}')
+                            pv.power_set(p_rated * pwr)
+
+                        sim_time = hil.get_time()
                         while (vrt_stop_time - sim_time) > 1.0:  # final sleep will get to stop_time.
-                            sim_time = phil.get_time()
+                            sim_time = hil.get_time()
                             ts.log('Sim Time: %0.3f.  Waiting another %0.3f sec before saving data.' % (
                                 sim_time, vrt_stop_time - sim_time))
                             ts.sleep(5)
 
-                    
-                        rms_dataset_filename = "No File"   
-                        wave_start_filename = "No File"        
+                        hil.stop_simulation()
+                        ts.sleep(10.0)  # Wait time until data
+                        rms_dataset_filename = "No File"
+                        wave_start_filename = "No File"
                         if data_ena:
                             rms_dataset_filename = dataset_filename + "_RMS.csv"
                             daq.data_capture(False)
 
                             # complete data capture
                             ts.log('Waiting for Opal to save the waveform data: {}'.format(dataset_filename))
-                            ts.sleep(10)
+                            #ts.sleep(10)
                         if wav_ena:
-                            # Convert and save the .mat file 
+                            # Convert and save the .mat file
                             ts.log('Processing waveform dataset(s)')
                             wave_start_filename = dataset_filename + "_WAV.csv"
 
@@ -394,9 +469,10 @@ def test_run():
                         result_summary.write('%s, %s, %s,\n' % (dataset_filename, wave_start_filename,
                                                                 rms_dataset_filename))
 
-                        phil.stop_simulation()
 
-                  
+
+
+
 
         result = script.RESULT_COMPLETE
 
@@ -414,8 +490,8 @@ def test_run():
         if grid is not None:
             grid.close()
         if pv is not None:
-            if p_rated is not None:
-                pv.power_set(p_rated)
+            # if p_rated is not None:
+            #     pv.power_set(p_rated)
             pv.close()
         if daq is not None:
             daq.close()
@@ -424,10 +500,10 @@ def test_run():
             eut.close()
         if rs is not None:
             rs.close()
-        if phil is not None:
-            if phil.model_state() == 'Model Running':
-                phil.stop_simulation()
-            phil.close()
+        if hil is not None:
+            if hil.model_state() == 'Model Running':
+                hil.stop_simulation()
+            hil.close()
 
         if result_summary is not None:
             result_summary.close()
@@ -441,6 +517,19 @@ def test_run():
 
 
 def run(test_script):
+    """
+    Runs the test script.
+
+    This function is the entry point for the test script. It sets up the necessary global variables, logs debug information, and calls the `test_run()` 
+    function to execute the test. If any exceptions occur during the test, it logs the error and sets the return code to 1. 
+    
+
+    Parameters:
+        test_script (script.ScriptInfo): The test script object.
+
+    Returns:
+        int: The return code, 0 for success, 1 for failure.
+    """
     try:
         global ts
         ts = test_script
@@ -465,7 +554,7 @@ def run(test_script):
     sys.exit(rc)
 
 
-info = script.ScriptInfo(name=os.path.basename(__file__), run=run, version='1.4.3')
+info = script.ScriptInfo(name=os.path.basename(__file__), run=run, version='1.4.2')
 
 # PRI test parameters
 info.param_group('vrt', label='Test Parameters')
@@ -521,7 +610,7 @@ der.params(info)
 gridsim.params(info)
 pvsim.params(info)
 das.params(info)
-hil.params(info)
+hil_lib.params(info)
 
 
 def script_info():
@@ -541,6 +630,3 @@ if __name__ == "__main__":
     test_script.log('log it')
 
     run(test_script)
-
-
-

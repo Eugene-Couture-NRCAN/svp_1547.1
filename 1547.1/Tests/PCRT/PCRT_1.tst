@@ -1,0 +1,52 @@
+<scriptConfig name="PCRT_1" script="PCRT">
+  <params>
+    <param name="eut.offset_current" type="string">0,0,0</param>
+    <param name="eut.offset_voltage" type="string">0,0,0</param>
+    <param name="pcrt.test_num" type="int">1</param>
+    <param name="pcrt.n_iter" type="int">1</param>
+    <param name="gridsim.opal.phases" type="int">1</param>
+    <param name="gridsim.opal.vout_scale" type="string">3.0,3.0,3.0</param>
+    <param name="eut.startup_time" type="int">10</param>
+    <param name="der.Opal.sec_crtl_frz_time" type="string">10.0</param>
+    <param name="eut.scale_voltage" type="string">20.0,20.0,20.0</param>
+    <param name="gridsim.opal.vin_scale" type="string">20.0,20.0,20.0</param>
+    <param name="pvsim.Opal.temp" type="float">25.0</param>
+    <param name="eut.scale_current" type="string">33.3400,33.3133,33.2567</param>
+    <param name="gridsim.opal.f_min" type="float">45.0</param>
+    <param name="eut.f_nom" type="float">60.0</param>
+    <param name="gridsim.opal.freq" type="float">60.0</param>
+    <param name="gridsim.opal.f_max" type="float">70.0</param>
+    <param name="eut.v_low" type="float">116.0</param>
+    <param name="eut.v_nom" type="float">120.0</param>
+    <param name="gridsim.opal.v_nom" type="float">120.0</param>
+    <param name="eut.v_high" type="float">132.0</param>
+    <param name="gridsim.opal.v_max" type="float">300.0</param>
+    <param name="eut.v_in_nom" type="int">400</param>
+    <param name="eut.p_min" type="float">1000.0</param>
+    <param name="das.opal.sample_interval" type="int">1000</param>
+    <param name="pvsim.Opal.irr" type="float">1200.0</param>
+    <param name="eut.var_rated" type="float">2000.0</param>
+    <param name="hil.opal.hil_stop_time" type="float">3600.0</param>
+    <param name="eut.p_rated" type="float">8000.0</param>
+    <param name="eut.s_rated" type="float">10000.0</param>
+    <param name="gridsim.opal.cin_scale" type="string">-3.32567,-3.33400,-3.327</param>
+    <param name="hil.opal.project_dir_path" type="string">C:\OPAL-RT\WorkspaceForEveryone\SimTestBench</param>
+    <param name="das.opal.record_mode" type="string">Datalogger</param>
+    <param name="gridsim.auto_config" type="string">Disabled</param>
+    <param name="hil.opal.target_name" type="string">GridSim</param>
+    <param name="das.opal.wfm_chan_list" type="string">IEEE1547_VRT</param>
+    <param name="hil.opal.rt_lab_model" type="string">IEEE_1547_Simulated_Test_Bench</param>
+    <param name="pcrt.wav_ena" type="string">No</param>
+    <param name="pcrt.data_ena" type="string">No</param>
+    <param name="der.mode" type="string">Opal</param>
+    <param name="gridsim.mode" type="string">Opal</param>
+    <param name="pvsim.mode" type="string">Opal</param>
+    <param name="das.mode" type="string">Opal</param>
+    <param name="hil.mode" type="string">Opal-RT</param>
+    <param name="das.opal.Datalogger_signal_group_name" type="string">SIGNAL_GROUP_1</param>
+    <param name="hil.setup" type="string">SIL</param>
+    <param name="hil.opal.rt_mode" type="string">Software</param>
+    <param name="eut.phases" type="string">Three phase</param>
+    <param name="pcrt.rms_ena" type="string">Yes</param>
+  </params>
+</scriptConfig>

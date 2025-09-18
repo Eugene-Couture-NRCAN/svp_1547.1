@@ -1,4 +1,4 @@
-<scriptConfig name="PRI" script="PRI">
+<scriptConfig name="PRI" script="Prioritization">
   <params>
     <param name="pri.pri_response_time" type="float">10.0</param>
     <param name="eut.f_nom" type="float">60.0</param>

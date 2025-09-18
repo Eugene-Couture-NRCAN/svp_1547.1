@@ -12,7 +12,7 @@ For the contribution list, please refer to [Contribution section](/1547.1/doc/CO
 
 ### Installation
 
-Please refer to the [Install section](/1547.1/doc/INSTALL.md) for detailed instruction
+Please refer to the **([Install section] insert link to the SVP wiki)** for detailed instruction
 
 ### SVP Scripts
 
@@ -44,9 +44,9 @@ Current compliance test scripts available:
 - [x] Frequency-watt or Frequency-droop - below nominal frequency (FW)
 
 #### Ride-Through support
-- [X] Phase-Change Ride-Through
-- [X] High/Low Frequency Ride-Through (Ongoing)
-- [X] Voltage Ride-Through
+- [X] Phase-angle Change Ride-Through (PCRT)
+- [X] High/Low Frequency Ride-Through (FRT)
+- [X] Voltage Ride-Through (VRT)
 
 #### Prioritization of DER responses
 - [x] Test for voltage and frequency regulation priority (PRI)
@@ -58,29 +58,17 @@ Current compliance test scripts available:
 #### Varia
 - [ ] Interoperability test
 
-#### Unitentional Islanding
-- [ ] Unitentional islanding test
-
-Note: The Unintentional Islanding PHIL model was created through the CIESESE program at Sandia National Laboratories. 
-A multi-year collaboration between the University of Puerto Rico Mayaguez and Sandia National Laboratories produced the 
-UI Opal-RT RT-LAB model that combines hardware and software tools (OPAL + MATLAB/Simulink + LabView + SVP) to emulate an 
-RLC load bank with full visualization of values with easy adjustment of the resonance condition necessary for island 
-experiments. 
-
-Preliminary results are presented in the following papers and will be discussed 
-in detail in the Ph.D. dissertation of Edgardo Desardén Carrero, expected in May 2021.
-
-* S. Gonzalez, E. Desarden, N. S. Gurule, and E. E. A. Bezares, “Unintentional Islanding Evaluation Utilizing Discrete RLC Circuit Versus Power Hardware-in-the Loop Method,” 46th IEEE Photovolt. Spec. Conf., 2019. 
-* E. Desarden-Carrero, R. Darbali-Zamora, N. S. Gurule, E. Aponte-Bezares and S. Gonzalez, “Evaluation of the IEEE Std 1547.1-2020 Unintentional Islanding Test Using Power Hardware-in-the-Loop” 47th IEEE Photovolt. Spec. Conf., 2020. 
+#### Unintentional Islanding
+- [ ] Unintentional Islanding test
 
 
 ### P1547 Library
 
-![P1547 Flowchart](1547.1/doc/P1547_flowchart.png)
+![P1547 Flowchart](1547.1/doc/P1547_flowchart.svg)
 
 #### Functions Classes
 
-P1547 Library now has one main class named ActiveFunction and it inherit all the slow advanced inverter function (AIF) class needed (Volt-Var, Volt-Watt, Frequency-Watt, Constant Reactive Power, Constant Power Factor, Watt-Var, Limit Active and Prioritization).
+P1547 Library now has one main class named ActiveFunction and it inherit all the advanced inverter function (AIF) class needed (Volt-Var, Volt-Watt, Frequency-Watt, Constant Reactive Power, Constant Power Factor, Watt-Var, Limit Active, Prioritization, Voltage Ride-Through, Frequency Ride-Through and Phase-angle Change Ride-Through).
 
 Each of the function has a class consisting of the following parameters:
 
@@ -97,15 +85,15 @@ y_criterias: The Y parameter(s) are all the observed values post-disturbance. Th
 Any steps dictionary and parameters settings will be created through its respective class.
 Additional Classes have been created to create a better distinction of their tasks:
 
-EutParameters: Class representing taking
+EutParameters: Class representing the equipment under tests parameters
 
 DataLogging: Class taking care of all tasks related to data acquisition and measuring data.
 
-CriteriasValidation: Class taking care of defining all the targets necessary either for steps value or the evaluated criteria for pass-fail. Next, it verifies the measured value are within the evaluated targets to validate if the EUT complies.
+CriteriasValidation: Class taking care of defining all the targeted value necessary for either steps value or for the evaluated criteria for pass-fail. Then, it verifies the measured value are within the evaluated targets to validate if the EUT complies.
 
 UtilParameters: Class that contains useful functions but does not fit with any of the other classes. As an example, most functions related to plot creation and column name are included in this class.
 
-HilModel: Class containing all HIL aspect related function for mostly fast functions for now.
+HilModel: Class containing all HIL aspect related function for mostly fast functions.
 
 #### Active Function Class
 
@@ -118,16 +106,5 @@ ActiveFunction = p1547.ActiveFunction(ts=ts,
 
 #### Example of P1547 usage with a 1547 script library
 
-![P1547 example](1547.1/doc/PRI_example_flowchart.png)
-
-To be completed...
-
-### Support
-
-For any bugs/issues, please refer to the [bug tracker][bug-tracker-url] section.
-
-🐙 was here.
-
-[bug-tracker-url]: https://github.com/BuiMCanmet/svp_1547.1/issues
-[1547-1-url]: https://github.com/BuiMCanmet/svp_1547.1/tree/master_python37
+![P1547 example](1547.1/doc/PRI_example_flowchart.svg)
 

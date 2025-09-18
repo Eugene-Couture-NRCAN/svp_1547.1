@@ -38,7 +38,7 @@ from svpelab import loadsim
 from svpelab import pvsim
 from svpelab import das
 from svpelab import der
-from svpelab import hil
+from svpelab import hil as hil_lib
 from svpelab import p1547
 import script
 from svpelab import result as rslt
@@ -56,6 +56,23 @@ P = 'P'
 Q = 'Q'
 
 def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
+    """
+    Runs the Volt-var (VV) test script.
+    
+    This function is the main entry point for the VV test script. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.14.4:
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.
+        2. Configures the EUT to disable all voltage trip parameters and other reactive/active power control functions.
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.
+        4. Adjusts the EUT's available active power to the rated value and sets the input voltage to the nominal value.
+        5. Enables the volt-varmode and configures the EUT with the specified volt-var curves.
+        6. Executes the test steps, including stepping the AC test source voltage and recording the steady-state response.
+            The setting tables for volt-var are in the script p1547.py under the class VoltVar
+        7. Performs the volt-var response time test by applying step changes in voltage and measuring the response time.
+        8. Saves the test results to a CSV file and creates a result workbook.
+    """
 
     result = script.RESULT_FAIL
     daq = None
@@ -63,7 +80,7 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
     grid = None
     pv = None
     eut = None
-    chil = None
+    hil = None
     result_summary = None
     dataset_filename = None
 
@@ -114,12 +131,16 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
         ts.log_debug(15*"*"+"HIL initialization"+15*"*")
 
         # initialize HIL environment, if necessary
-        chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
+        hil = hil_lib.hil_init(ts)
+        hil_setup = ts.params['hil.setup']
+
+        if hil is not None and hil_setup == 'SIL':
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
+
         ts.log_debug(15*"*"+"PVSIM initialization"+15*"*")
         # pv simulator is initialized with test parameters and enabled
-        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': chil}) 
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': hil}) 
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
@@ -132,7 +153,7 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
         #das_points = {'sc': ('Q_TARGET', 'Q_TARGET_MIN', 'Q_TARGET_MAX', 'Q_MEAS', 'V_TARGET', 'V_MEAS', 'event')}
         das_points = ActiveFunction.get_sc_points()
         # initialize data acquisition system
-        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': chil}) 
+        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': hil}) 
 
         daq.sc['V_TARGET'] = v_nom
         daq.sc['Q_TARGET'] = 100
@@ -142,13 +163,15 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
 
         ts.log('DAS device: %s' % daq.info())
 
+        ActiveFunction.set_daq(daq)
+
         '''
-        b) Set all voltage trip parameters to the widest range of adjustability.  Disable all reactive/active power
+        b) Set all voltage trip parameters to the widest range of adjustability. Disable all reactive/active power
         control functions.
         '''
         ts.log_debug(15*"*"+"EUT initialization"+15*"*")
 
-        eut = der.der_init(ts, support_interfaces={'hil': chil}) 
+        eut = der.der_init(ts, support_interfaces={'hil': hil}) 
         if eut is not None:
             eut.config()
             ts.log_debug(eut.measurements())
@@ -171,39 +194,43 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
         else:
             ts.log_debug('Set L/HVRT and trip parameters set to the widest range of adjustability possible.')
 
-        # # Special considerations for CHIL ASGC/Typhoon startup
-        if chil is not None:
-            if eut is not None:
-                if eut.measurements() is not None:
-                    inv_power = eut.measurements().get('W')
-                    timeout = 120.
-                    if inv_power <= p_rated * 0.85:
-                        pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
-                        ts.sleep(3)
-                        eut.connect(params={'Conn': True})
-                    while inv_power <= p_rated * 0.85 and timeout >= 0:
-                        ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
-                            (inv_power, timeout))
-                        ts.sleep(1)
-                        timeout -= 1
-                        inv_power = eut.measurements().get('W')
-                        if timeout == 0:
-                            result = script.RESULT_FAIL
-                            raise der.DERError('Inverter did not start.')
-                    ts.log('Waiting for EUT to ramp up')
-                    ts.sleep(8)
-                    ts.log_debug('DAS data_read(): %s' % daq.data_read())
+        # # Special considerations for hil ASGC/Typhoon startup
+        # if hil is not None:
+        #     if eut is not None:
+        #         if eut.measurements() is not None:
+        #             inv_power = eut.measurements().get('W')
+        #             timeout = 120.
+        #             if inv_power <= p_rated * 0.85:
+        #                 pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
+        #                 ts.sleep(3)
+        #                 eut.connect(params={'Conn': True})
+        #             while inv_power <= p_rated * 0.85 and timeout >= 0:
+        #                 ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
+        #                     (inv_power, timeout))
+        #                 ts.sleep(1)
+        #                 timeout -= 1
+        #                 inv_power = eut.measurements().get('W')
+        #                 if timeout == 0:
+        #                     result = script.RESULT_FAIL
+        #                     raise der.DERError('Inverter did not start.')
+        #             ts.log('Waiting for EUT to ramp up')
+        #             ts.sleep(8)
+        #             ts.log_debug('DAS data_read(): %s' % daq.data_read())
 
         '''
         c) Set all AC test source parameters to the nominal operating voltage and frequency.
         '''
         ts.log_debug(15*"*"+"GRIDSIM initialization"+15*"*")
 
-        grid = gridsim.gridsim_init(ts,support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
+        if hil is not None and hil_setup == 'PHIL':
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
+
+        grid = gridsim.gridsim_init(ts,support_interfaces={'hil': hil})  # Turn on AC so the EUT can be initialized
         if grid is not None:
             grid.voltage(v_nom)
-            if chil is not None:  # If using HIL, give the grid simulator the hil object
-                grid.config()
+            # if hil is not None:  # If using HIL, give the grid simulator the hil object
+            #     grid.config()
 
         # open result summary file
         result_summary_filename = 'result_summary.csv'
@@ -242,28 +269,28 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
                     pv.iv_curve_config(pmp=pv_power_setting, vmp=v_in_nom)
                     pv.irradiance_set(1000.)
 
-                # Special considerations for CHIL ASGC/Typhoon startup #
-                # Why does it need to appear twice, shouldn't this be at the driver level
-                if chil is not None:
-                    if eut is not None:
-                        if  eut.measurements() is not None:
-                            inv_power = eut.measurements().get('W')
-                            timeout = 120.
-                            if inv_power <= pv_power_setting * 0.85:
-                                pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
-                                ts.sleep(3)
-                                eut.connect(params={'Conn': True})
-                            while inv_power <= pv_power_setting * 0.85 and timeout >= 0:
-                                ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
-                                    (inv_power, timeout))
-                                ts.sleep(1)
-                                timeout -= 1
-                                inv_power = eut.measurements().get('W')
-                                if timeout == 0:
-                                    result = script.RESULT_FAIL
-                                    raise der.DERError('Inverter did not start.')
-                            ts.log('Waiting for EUT to ramp up')
-                            ts.sleep(8)
+                # # Special considerations for hil ASGC/Typhoon startup #
+                # # Why does it need to appear twice, shouldn't this be at the driver level
+                # if hil is not None:
+                #     if eut is not None:
+                #         if  eut.measurements() is not None:
+                #             inv_power = eut.measurements().get('W')
+                #             timeout = 120.
+                #             if inv_power <= pv_power_setting * 0.85:
+                #                 pv.irradiance_set(995)  # Perturb the pv slightly to start the inverter
+                #                 ts.sleep(3)
+                #                 eut.connect(params={'Conn': True})
+                #             while inv_power <= pv_power_setting * 0.85 and timeout >= 0:
+                #                 ts.log('Inverter power is at %0.1f. Waiting up to %s more seconds or until EUT starts...' %
+                #                     (inv_power, timeout))
+                #                 ts.sleep(1)
+                #                 timeout -= 1
+                #                 inv_power = eut.measurements().get('W')
+                #                 if timeout == 0:
+                #                     result = script.RESULT_FAIL
+                #                     raise der.DERError('Inverter did not start.')
+                #             ts.log('Waiting for EUT to ramp up')
+                #             ts.sleep(8)
                     
 
 
@@ -301,10 +328,9 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
                         f) Verify volt-var mode is reported as active and that the correct characteristic is reported.
                         '''
                         ts.log_debug('Initial EUT VV settings are %s' % eut.volt_var())
-                    if chil is not None:                        
-                        ts.log('Start simulation of CHIL')  
-                        chil.start_simulation()
-                    v_steps_dict = ActiveFunction.create_vv_dict_steps(v_ref=v_ref)
+
+                    ActiveFunction.running_test_script_parameters["VREF"] = v_ref
+                    v_steps_dict = ActiveFunction.create_vv_dict_steps()
 
                     dataset_filename = 'VV_%s_PWR_%d_vref_%d' % (vv_curve, power * 100, v_ref*100)
                     ActiveFunction.reset_filename(filename=dataset_filename)
@@ -316,14 +342,14 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
 
                         ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_step, step_label))
 
-                        ActiveFunction.start(daq=daq, step_label=step_label)
+                        ActiveFunction.start(step_label=step_label)                                               # STEP G ---> STEP DD
                         step_dict = {'V': v_step}
 
                         if grid is not None:
                             grid.voltage(step_dict['V'])
 
-                        ActiveFunction.record_timeresponse(daq=daq)
-                        ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                        ActiveFunction.record_timeresponse()
+                        ActiveFunction.evaluate_criterias(step_dict=step_dict)
                         result_summary.write(ActiveFunction.write_rslt_sum())
 
                     ts.log('Sampling complete')
@@ -363,8 +389,8 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
             if v_nom is not None:
                 grid.voltage(v_nom)
             grid.close()
-        if chil is not None:
-            chil.close()
+        if hil is not None:
+            hil.close()
         if eut is not None:
             #eut.volt_var(params={'Ena': False})
             eut.close()
@@ -376,10 +402,28 @@ def volt_vars_mode(vv_curves, vv_response_time, pwr_lvls, v_ref_value):
 
 
 def volt_vars_mode_vref_test():
+    """
+    Runs the Volt-var (VV) test script for an unbalanced grid.
+    """
     return 1
 
 def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
-
+    """
+    Runs the Volt-var (VV) test script for an unbalanced grid.
+    
+    This function is the main entry point for the VV test script for unbalanced grid. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.14.6 (unbalanced grid):
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.
+        2. Configures the EUT to disable all voltage trip parameters and other reactive/active power control functions.
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.
+        4. Adjusts the EUT's available active power to the rated value and sets the input voltage to the nominal value.
+        5. Enables the volt-var mode and configures the EUT with the specified volt-var curves.
+        6. Executes the test steps, including stepping the AC test source voltage and recording the steady-state response.
+        7. Performs the volt-var response time test by applying step changes in voltage and measuring the response time.
+        8. Saves the test results to a CSV file and creates a result workbook.
+    """
     result = script.RESULT_FAIL
     daq = None
     v_nom = None
@@ -387,7 +431,7 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
     grid = None
     pv = None
     eut = None
-    chil = None
+    hil = None
     result_summary = None
     dataset_filename = None
 
@@ -435,17 +479,19 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
         a) Connect the EUT according to the instructions and specifications provided by the manufacturer.
         '''
         # initialize HIL environment, if necessary
-        chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
+        hil = hil_lib.hil_init(ts)
+
+        if hil is not None:
+            ts.log('Start simulation of hil')
+            hil.start_simulation()
 
         # grid simulator is initialized with test parameters and enabled
-        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
+        grid = gridsim.gridsim_init(ts, support_interfaces={'hil': hil})  # Turn on AC so the EUT can be initialized
         if grid is not None:
             grid.voltage(v_nom)
 
         # pv simulator is initialized with test parameters and enabled
-        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': chil}) 
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': hil}) 
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
@@ -454,7 +500,7 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
         das_points = ActiveFunction.get_sc_points()
 
         # initialize data acquisition system
-        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': chil}) 
+        daq = das.das_init(ts, sc_points=das_points['sc'], support_interfaces={'hil': hil}) 
         if daq is not None:
             daq.sc['Q_TARGET'] = 100
             daq.sc['Q_TARGET_MIN'] = 100
@@ -463,12 +509,13 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
             daq.sc['event'] = 'None'
             ts.log('DAS device: %s' % daq.info())
 
+        ActiveFunction.set_daq(daq)
         '''
         b) Set all voltage trip parameters to the widest range of adjustability. Disable all reactive/active power
         control functions.
         '''
         # it is assumed the EUT is on
-        eut = der.der_init(ts, support_interfaces={'hil': chil}) 
+        eut = der.der_init(ts, support_interfaces={'hil': hil}) 
         if eut is not None:
             eut.config()
             ts.log_debug('If not done already, set L/HVRT and trip parameters to the widest range of adjustability.')
@@ -510,7 +557,7 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
             for vv_curve in vv_curves:
 
                 '''
-                 e) Set EUT volt-watt parameters to the values specified by Characteristic 1. All other function be turned off.
+                 e) Set EUT volt-var parameters to the values specified by Characteristic 1. All other function be turned off.
                  '''
                 ts.log('Starting test with characteristic curve %s' % (vv_curve))
                 ActiveFunction.reset_curve(vv_curve)
@@ -539,9 +586,9 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
                 if eut is not None:
                     ts.log_debug('Initial EUT VV settings are %s' % eut.volt_var())
                 ts.log_debug('curve points:  %s' % v_pairs)
-                if chil is not None:                        
-                    ts.log('Start simulation of CHIL')  
-                    chil.start_simulation()
+                if hil is not None:                        
+                    ts.log('Start simulation of hil')  
+                    hil.start_simulation()
                 '''
                 g) Wait for steady state to be reached.
     
@@ -575,12 +622,12 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     ts.log('Voltage step: setting Grid simulator to case A (IEEE 1547.1-Table 24)(%s)' % step)
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     v_target = ActiveFunction.set_grid_asymmetric(grid=grid, case='case_a', imbalance_resp=imbalance_response)
                     ts.log_debug(f'v_target={v_target}')
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 '''
@@ -589,12 +636,12 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     v_target = v_nom
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
                     grid.voltage(v_target)
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias( step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 """
@@ -602,12 +649,12 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
                 """
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     ts.log('Voltage step: setting Grid simulator to case B (IEEE 1547.1-Table 24)(%s)' % step)
                     v_target = ActiveFunction.set_grid_asymmetric(grid=grid, case='case_b', imbalance_resp=imbalance_response)
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias(step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 """
@@ -616,12 +663,12 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
                 if grid is not None:
                     step_label = ActiveFunction.get_step_label()
                     v_target = v_nom
-                    ActiveFunction.start(daq=daq, step_label=step_label)
+                    ActiveFunction.start( step_label=step_label)
                     ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_nom, step))
                     grid.voltage(v_nom)
                     step_dict = {'V': v_target}
-                    ActiveFunction.record_timeresponse(daq=daq)
-                    ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict)
+                    ActiveFunction.record_timeresponse()
+                    ActiveFunction.evaluate_criterias(step_dict=step_dict)
                     result_summary.write(ActiveFunction.write_rslt_sum())
 
                 ts.log('Sampling complete')
@@ -664,8 +711,8 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
             if v_nom is not None:
                 grid.voltage(v_nom)
             grid.close()
-        if chil is not None:
-            chil.close()
+        if hil is not None:
+            hil.close()
         if eut is not None:
             #eut.volt_var(params={'Ena': False})
             #eut.volt_watt(params={'Ena': False})
@@ -676,6 +723,14 @@ def volt_var_mode_imbalanced_grid(imbalance_resp, vv_curves, vv_response_time):
     return result
 
 def test_run():
+    """
+    Runs the Volt-Var (VV) test script, the Volt-Var VRef or the Volt-Var test script with imbalance grid.
+    
+
+    return:
+    -------
+        The function returns the overall test result (RESULT_COMPLETE or RESULT_FAIL).
+    """
 
     result = script.RESULT_FAIL
 
@@ -768,6 +823,19 @@ def test_run():
 
 
 def run(test_script):
+    """
+    Runs the test script.
+
+    This function is the entry point for the test script. It sets up the necessary global variables, logs debug information, and calls the `test_run()` 
+    function to execute the test. If any exceptions occur during the test, it logs the error and sets the return code to 1. 
+    
+
+    Parameters:
+        test_script (script.ScriptInfo): The test script object.
+
+    Returns:
+        int: The return code, 0 for success, 1 for failure.
+    """
     try:
         global ts
         ts = test_script
@@ -845,7 +913,7 @@ der.params(info)
 gridsim.params(info)
 pvsim.params(info)
 das.params(info)
-hil.params(info)
+hil_lib.params(info)
 
 # Add the SIRFN logo
 info.logo('sirfn.png')

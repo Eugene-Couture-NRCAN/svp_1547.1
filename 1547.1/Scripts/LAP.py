@@ -53,6 +53,21 @@ VW = 'VW'
 FW = 'FW'
 
 def test_run():
+    """
+    Runs the Limit active power (LAP) test script.
+    
+    This test confirms the EUT's capability to limit active power. It handles the overall test flow, including initializing
+    the test environment, configuring the EUT, executing the test steps, and capturing the test results.
+    
+    The function performs the following steps from IEEE1547.1-2020 section 5.13.2 :
+        1. Initializes the test environment, including grid simulator, PV simulator, data acquisition system, and EUT.  
+        2. Configure the EUT to the default settings for the abnormal operating performance category of the DER; Enable voltage-active power mode.
+        3. Sets the AC test source parameters to the nominal operating voltage and frequency.                           
+        4. Executes the test steps, and recording the time-domain response.
+        5. Saves the test results to a CSV file and creates a result workbook.
+    
+    The function returns the overall test result (RESULT_COMPLETE or RESULT_FAIL).
+    """
 
     result = script.RESULT_FAIL
     grid = None
@@ -164,8 +179,6 @@ def test_run():
         """
         # initialize HIL environment, if necessary
         chil = hil.hil_init(ts)
-        if chil is not None:
-            chil.config()
 
         # grid simulator is initialized with test parameters and enabled
         grid = gridsim.gridsim_init(ts, support_interfaces={'hil': chil})  # Turn on AC so the EUT can be initialized
@@ -173,7 +186,7 @@ def test_run():
             grid.voltage(v_nom)
 
         # pv simulator is initialized with test parameters and enabled
-        pv = pvsim.pvsim_init(ts)
+        pv = pvsim.pvsim_init(ts, support_interfaces={'hil': chil})
         if pv is not None:
             pv.power_set(p_rated)
             pv.power_on()  # Turn on DC so the EUT can be initialized
@@ -186,6 +199,7 @@ def test_run():
 
         if daq is not None:
             ts.log('DAS device: %s' % daq.info())
+            ActiveFunction.set_daq(daq)
 
         eut = der.der_init(ts, support_interfaces={'hil': chil}) 
         if eut is not None:
@@ -299,6 +313,7 @@ def test_run():
                                                 'WinTms': 0,
                                                 'RmpTms': 0,
                                                 'RvrtTms': 0.0})
+                    ActiveFunction.reset_max_pwr_lim(100)
                 ts.sleep(2 * tr_min)
                 daq.data_capture(True)
                 filename = ('LAP_{0}_{1}'.format(act_pwrs_limit, n_iter))
@@ -313,25 +328,26 @@ def test_run():
                 ActiveFunction.set_step_label(starting_label='C')
                 step_label = ActiveFunction.get_step_label()
                 daq.sc['event'] = step
-                ActiveFunction.start(daq=daq, step_label=step_label)
-                #initial_values = ActiveFunction.get_initial_value(daq=daq, step=step)
+                ActiveFunction.start( step_label=step_label)
+                #initial_values = ActiveFunction.get_initial_value( step=step)
                 ts.log('EUT Config: setting Active Power Limit to %s (%s)' % (act_pwrs_limit, step))
                 if eut is not None:
                     # limit maximum power
                     eut.limit_max_power(
                         params={
-                            'MaxLimWEna': True,
-                            'MaxLimW_PCT': act_pwrs_limit*100,
+                            'Ena': True,
+                            'WMaxPct': act_pwrs_limit*100,
                             'WinTms': 0,
                             'RmpTms': 0,
                             'RvrtTms': 0.0
                         }
                     )
+                    ActiveFunction.reset_max_pwr_lim(act_pwrs_limit*100)
                 step_dict = {'V': v_nom, 'F': f_nom, 'P': act_pwrs_limit}
                 #target_dict = {'P': act_pwrs_limit}
-                ActiveFunction.record_timeresponse(daq=daq)
+                ActiveFunction.record_timeresponse()
                 ts.log_debug(f'daq={daq}')
-                ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict, y_criterias_mod={'P': LAP})
+                ActiveFunction.evaluate_criterias( step_dict=step_dict, y_criterias_mod={'P': LAP})
                 result_summary.write(ActiveFunction.write_rslt_sum())
 
                 """
@@ -345,12 +361,12 @@ def test_run():
                     for f_step in f_steps:
                         step_ = step_label + "_" + str(f_step)
                         ts.log('Frequency step: setting Grid simulator frequency to %s (%s)' % (f_step, step_))
-                        ActiveFunction.start(daq=daq, step_label=step_)
-                        #initial_values = ActiveFunction.get_initial_value(daq=daq,step=step_)
+                        ActiveFunction.start( step_label=step_)
+                        #initial_values = ActiveFunction.get_initial_value(step=step_)
                         grid.freq(f_step)
                         step_dict = {'V': v_nom, 'F': f_step, 'P': act_pwrs_limit}
-                        ActiveFunction.record_timeresponse(daq=daq)
-                        ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict, y_criterias_mod={'P': FW})
+                        ActiveFunction.record_timeresponse()
+                        ActiveFunction.evaluate_criterias( step_dict=step_dict, y_criterias_mod={'P': FW})
                         result_summary.write(ActiveFunction.write_rslt_sum())
 
 
@@ -365,12 +381,12 @@ def test_run():
                     for f_step in f_steps:
                         step_ = step_label + "_" + str(f_step)
                         ts.log('Frequency step: setting Grid simulator frequency to %s (%s)' % (f_step, step_))
-                        ActiveFunction.start(daq=daq, step_label=step_)
-                        #initial_values = ActiveFunction.get_initial_value(daq=daq,step=step_)
+                        ActiveFunction.start( step_label=step_)
+                        #initial_values = ActiveFunction.get_initial_value(step=step_)
                         grid.freq(f_step)
                         step_dict = {'V': v_nom, 'F': f_step, 'P': act_pwrs_limit}
-                        ActiveFunction.record_timeresponse(daq=daq)
-                        ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict, y_criterias_mod={'P': FW})
+                        ActiveFunction.record_timeresponse()
+                        ActiveFunction.evaluate_criterias( step_dict=step_dict, y_criterias_mod={'P': FW})
                         result_summary.write(ActiveFunction.write_rslt_sum())
 
 
@@ -385,12 +401,12 @@ def test_run():
                     for v_step in v_steps:
                         step_ = step_label + "_" + str(v_step)
                         ts.log('Voltage step: setting Grid simulator voltage to %s (%s)' % (v_step, step_))
-                        #initial_values = ActiveFunction.get_initial_value(daq=daq,step=step_)
-                        ActiveFunction.start(daq=daq, step_label=step_)
+                        #initial_values = ActiveFunction.get_initial_value(step=step_)
+                        ActiveFunction.start( step_label=step_)
                         grid.voltage(v_step)
                         step_dict = {'V': v_step, 'F': f_nom, 'P': act_pwrs_limit}
-                        ActiveFunction.record_timeresponse(daq=daq)
-                        ActiveFunction.evaluate_criterias(daq=daq, step_dict=step_dict, y_criterias_mod={'P': VW})
+                        ActiveFunction.record_timeresponse()
+                        ActiveFunction.evaluate_criterias( step_dict=step_dict, y_criterias_mod={'P': VW})
                         result_summary.write(ActiveFunction.write_rslt_sum())
 
                 ts.log('Sampling complete')
@@ -480,10 +496,10 @@ info.param('lap.act_pwr', label='Active Power limits iteration', default='All', 
 info.param('lap.iter', label='Number of repetitions', default=3)
 # FW test parameters
 info.param_group('fw', label='FW - Test Parameters', glob=True)
-info.param('lap.test_fw_1_tr', label='Response time (s) for default', default=5.0)
+info.param('lap.test_fw_1_tr', label='Response time (s) for FW', default=5.0)
 # VW test parameters
 info.param_group('vw', label='VW - Test Parameters', glob=True)
-info.param('lap.test_vw_1_tr', label='Response time (s) for default', default=10.0)
+info.param('lap.test_vw_1_tr', label='Response time (s) for VW', default=10.0)
 
 # EUT general parameters
 info.param_group('eut', label='EUT Parameters', glob=True)
