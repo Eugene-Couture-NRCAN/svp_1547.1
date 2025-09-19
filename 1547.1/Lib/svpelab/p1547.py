@@ -813,10 +813,10 @@ class DataLogging:
         # self.tr = tr
 
         first_tr = self.initial_value['timestamp'] + timedelta(seconds=self.tr)
-        tr_list = [first_tr]
+        rec_time_list = [first_tr]
 
         for i in range(self.n_tr):
-            tr_list.append(tr_list[i] + timedelta(seconds=self.tr))
+            rec_time_list.append(rec_time_list[i] + timedelta(seconds=self.tr))
             for meas_value in self.meas_values:
                 self.tr_value['%s_TR_%s' % (meas_value, i)] = None
                 if meas_value in x:
@@ -825,16 +825,16 @@ class DataLogging:
                     self.tr_value['%s_TR_TARG_%s' % (meas_value, i)] = None
                     self.tr_value['%s_TR_%s_MIN' % (meas_value, i)] = None
                     self.tr_value['%s_TR_%s_MAX' % (meas_value, i)] = None
-        tr_iter = 1
+        rec_time_iter = 1
 
-        for tr_ in tr_list:
+        for rec_time in rec_time_list:
             now = datetime.now()
-            if now <= tr_:
-                time_to_sleep = tr_ - datetime.now()
+            if now <= rec_time:
+                time_to_sleep = rec_time - datetime.now()
                 self.ts.log('Waiting %s seconds to get the next Tr data for analysis...' %
                             time_to_sleep.total_seconds())
                 self.ts.sleep(time_to_sleep.total_seconds())
-            self.daq.sc['event'] = "{0}_TR_{1}".format(self.current_step_label, tr_iter)
+            self.daq.sc['event'] = "{0}_TR_{1}".format(self.current_step_label, rec_time_iter)
             #self.define_target(y_criterias_mod=y_criterias_mod)
             self.daq.data_sample()  # sample new data
             data = self.daq.data_capture_read()  # Return dataset created from last data capture
@@ -845,7 +845,7 @@ class DataLogging:
             # store the self.daq.sc['Y_TARGET'], self.daq.sc['Y_TARGET_MIN'], and self.daq.sc['Y_TARGET_MAX'] in tr_value
             for meas_value in self.meas_values:
                 try:
-                    self.tr_value['%s_TR_%s' % (meas_value, tr_iter)] = self.get_measurement_total(meas_value) #self.daq.sc['%s_MEAS' % meas_value]
+                    self.tr_value['%s_TR_%s' % (meas_value, rec_time_iter)] = self.get_measurement_total(meas_value) #self.daq.sc['%s_MEAS' % meas_value]
 
                     self.ts.log('Value %s: %s' % (meas_value, self.daq.sc['%s_MEAS' % meas_value]))
 
@@ -853,10 +853,10 @@ class DataLogging:
                     self.ts.log_error('Test script exception: %s' % traceback.format_exc())
                     self.ts.log_debug('Measured value (%s) not recorded: %s' % (meas_value, e))
 
-            # self.tr_value[tr_iter]["timestamp"] = tr_
-            self.tr_value[f'timestamp_{tr_iter}'] = tr_
-            self.tr_value['LAST_ITER'] = tr_iter - 1
-            tr_iter = tr_iter + 1
+            # self.tr_value[rec_time_iter]["timestamp"] = rec_time
+            self.tr_value[f'timestamp_{rec_time_iter}'] = rec_time
+            self.tr_value['LAST_ITER'] = rec_time_iter - 1
+            rec_time_iter = rec_time_iter + 1
 
         self.tr_value['FIRST_ITER'] = 1
 
@@ -925,8 +925,8 @@ class CriteriaValidation:
         y = list(y_criteria.keys())
         # self.tr = tr
         self.ts.log_debug(f'daq={self.daq.sc}')
-        for tr_iter in range(self.n_tr + 1):
-            self.ts.log_debug(f'tr_iter={tr_iter}')
+        for rec_time_iter in range(self.n_tr + 1):
+            self.ts.log_debug(f'rec_time_iter={rec_time_iter}')
             # store the self.daq.sc['Y_TARGET'], self.daq.sc['Y_TARGET_MIN'], and self.daq.sc['Y_TARGET_MAX'] in tr_value
             for meas_value in self.meas_values:
                 try:
@@ -935,8 +935,8 @@ class CriteriaValidation:
                         if (self.step_dict is not None) and (meas_value in list(self.step_dict.keys())):
                             self.ts.log_debug(f'step_dict')
                             self.daq.sc['%s_TARGET' % meas_value] = self.step_dict[meas_value]
-                            self.tr_value['%s_TR_TARG_%s' % (meas_value, tr_iter)] = self.step_dict[meas_value]
-                            self.ts.log_debug(f'tr_targ={self.tr_value["%s_TR_TARG_%s" % (meas_value, tr_iter)]}')
+                            self.tr_value['%s_TR_TARG_%s' % (meas_value, rec_time_iter)] = self.step_dict[meas_value]
+                            self.ts.log_debug(f'tr_targ={self.tr_value["%s_TR_TARG_%s" % (meas_value, rec_time_iter)]}')
                             self.ts.log('X Value (%s) = %s' % (meas_value, self.daq.sc['%s_MEAS' % meas_value]))
 
                     elif meas_value in y:
@@ -954,11 +954,11 @@ class CriteriaValidation:
                             (self.daq.sc['%s_TARGET' % meas_value], self.daq.sc['%s_TARGET_MIN' % meas_value],
                              self.daq.sc['%s_TARGET_MAX' % meas_value]) = self.calculate_target_values(function=y_criteria[meas_value])
                         self.daq.sc['%s_MEAS' % meas_value] = self.get_measurement_total(type_meas=meas_value, log=False)
-                        self.tr_value[f'{meas_value}_TR_TARG_{tr_iter}'] = self.daq.sc['%s_TARGET' % meas_value]
-                        self.tr_value[f'{meas_value}_TR_{tr_iter}_MIN'] = self.daq.sc['%s_TARGET_MIN' % meas_value]
-                        self.tr_value[f'{meas_value}_TR_{tr_iter}_MAX'] = self.daq.sc['%s_TARGET_MAX' % meas_value]
-                        self.ts.log_debug(f"{meas_value}_TR_TARG_{tr_iter}")
-                        self.ts.log_debug(f'tr_target={self.tr_value[f"{meas_value}_TR_TARG_{tr_iter}"]}')
+                        self.tr_value[f'{meas_value}_TR_TARG_{rec_time_iter}'] = self.daq.sc['%s_TARGET' % meas_value]
+                        self.tr_value[f'{meas_value}_TR_{rec_time_iter}_MIN'] = self.daq.sc['%s_TARGET_MIN' % meas_value]
+                        self.tr_value[f'{meas_value}_TR_{rec_time_iter}_MAX'] = self.daq.sc['%s_TARGET_MAX' % meas_value]
+                        self.ts.log_debug(f"{meas_value}_TR_TARG_{rec_time_iter}")
+                        self.ts.log_debug(f'tr_target={self.tr_value[f"{meas_value}_TR_TARG_{rec_time_iter}"]}')
                         self.ts.log('Y Value (%s) = %s. Pass/fail bounds = [%s, %s]' %
                                     (meas_value, self.daq.sc['%s_MEAS' % meas_value],
                                      self.daq.sc['%s_TARGET_MIN' % meas_value], self.daq.sc['%s_TARGET_MAX' % meas_value]))
@@ -1248,7 +1248,7 @@ class CriteriaValidation:
 
         return resp
 
-    def open_loop_resp_criteria(self, tr=1):
+    def open_loop_resp_criteria(self, tr_number=1):
         """
         Evaluate open loop response criteria.
 
@@ -1273,10 +1273,10 @@ class CriteriaValidation:
         y = list(self.y_criteria.keys())[0]
         mra_y = self.MRA[y]
 
-        duration = self.tr_value[f"timestamp_{tr}"] - self.initial_value['timestamp']
+        duration = self.tr_value[f"timestamp_{tr_number}"] - self.initial_value['timestamp']
         duration = duration.total_seconds()
         self.ts.log('Calculating pass/fail for Tr = %s sec, with a target of %s sec' %
-                    (duration, tr))
+                    (duration, self.tr))
 
         # Given that Y(time) is defined by an open loop response characteristic, use that curve to
         # calculated the target, minimum, and max, based on the open loop response expectation
@@ -1288,28 +1288,28 @@ class CriteriaValidation:
             # y_start = tr_value['%s_INITIAL' % y]
             mra_t = self.MRA['T'] * duration  # MRA(X) = MRA(time) = 0.01*duration
         # self.ts.log_debug(f'tr_value={self.tr_value}')
-        y_ss = self.tr_value[f'{y}_TR_TARG_{tr}']
-        y_target = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss, duration=duration, tr=tr)  # 90%
-        y_meas = self.tr_value[f'{y}_TR_{tr}']
+        y_ss = self.tr_value[f'{y}_TR_TARG_{tr_number}']
+        y_target = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss, duration=duration, tr=self.tr)  # 90%
+        y_meas = self.tr_value[f'{y}_TR_{tr_number}']
         self.ts.log_debug(
-            f'y_target = {y_target:.2f}, y_ss [{y_ss:.2f}], y_start [{y_start:.2f}], duration = {duration}, tr={tr}')
+            f'y_target = {y_target:.2f}, y_ss [{y_ss:.2f}], y_start [{y_start:.2f}], duration = {duration}, tr={self.tr}')
 
         if y_start <= y_target:  # increasing values of y
             increasing = True
             # Y(time) = open loop curve, so locate the Y(time) value on the curve
             y_min = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss,
-                                                   duration=duration - 1.5 * mra_t, tr=tr) - 1.5 * mra_y
+                                                   duration=duration - 1.5 * mra_t, tr=self.tr) - 1.5 * mra_y
             # Determine maximum value based on the open loop response expectation
             y_max = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss,
-                                                   duration=duration + 1.5 * mra_t, tr=tr) + 1.5 * mra_y
+                                                   duration=duration + 1.5 * mra_t, tr=self.tr) + 1.5 * mra_y
         else:  # decreasing values of y
             increasing = False
             # Y(time) = open loop curve, so locate the Y(time) value on the curve
             y_min = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss,
-                                                   duration=duration + 1.5 * mra_t, tr=tr) - 1.5 * mra_y
+                                                   duration=duration + 1.5 * mra_t, tr=self.tr) - 1.5 * mra_y
             # Determine maximum value based on the open loop response expectation
             y_max = self.calculate_open_loop_value(y0=y_start, y_ss=y_ss,
-                                                   duration=duration - 1.5 * mra_t, tr=tr) + 1.5 * mra_y
+                                                   duration=duration - 1.5 * mra_t, tr=self.tr) + 1.5 * mra_y
 
         # pass/fail applied to the open loop time response
         if self.script_name == CRP:  # 1-sided analysis
@@ -1348,26 +1348,26 @@ class CriteriaValidation:
         # Note: Note sure where criteria_mode[1] (Steady-state accuracy after 1 Tr) is used in IEEE 1547.1
         self.ts.log_debug(f'RESULT_ACCURACY')
         for y in self.y_criteria:
-            for tr_iter in range(self.tr_value['FIRST_ITER'], self.tr_value['LAST_ITER'] + 1):
+            for rec_time_iter in range(self.tr_value['FIRST_ITER'], self.tr_value['LAST_ITER'] + 1):
 
-                if (self.tr_value['FIRST_ITER'] == tr_iter and self.criteria_mode[1]) or \
-                        (self.tr_value['LAST_ITER'] == tr_iter and self.criteria_mode[2]):
+                if (self.tr_value['FIRST_ITER'] == rec_time_iter and self.criteria_mode[1]) or \
+                        (self.tr_value['LAST_ITER'] == rec_time_iter and self.criteria_mode[2]):
 
                     # pass/fail assessment for the steady-state values
-                    # self.ts.log_debug(f'current iter={tr_iter}')
-                    if self.tr_value['%s_TR_%s_MIN' % (y, tr_iter)] <= \
-                            self.tr_value['%s_TR_%s' % (y, tr_iter)] <= self.tr_value['%s_TR_%s_MAX' % (y, tr_iter)]:
-                        self.tr_value['%s_TR_%s_PF' % (y, tr_iter)] = 'Pass'
+                    # self.ts.log_debug(f'current iter={rec_time_iter}')
+                    if self.tr_value['%s_TR_%s_MIN' % (y, rec_time_iter)] <= \
+                            self.tr_value['%s_TR_%s' % (y, rec_time_iter)] <= self.tr_value['%s_TR_%s_MAX' % (y, rec_time_iter)]:
+                        self.tr_value['%s_TR_%s_PF' % (y, rec_time_iter)] = 'Pass'
                     else:
-                        self.tr_value['%s_TR_%s_PF' % (y, tr_iter)] = 'Fail'
+                        self.tr_value['%s_TR_%s_PF' % (y, rec_time_iter)] = 'Fail'
 
                     self.ts.log('  Steady state %s(Tr_%s) evaluation: %0.1f <= %0.1f <= %0.1f  [%s]' % (
                         y,
-                        tr_iter,
-                        self.tr_value['%s_TR_%s_MIN' % (y, tr_iter)],
-                        self.tr_value['%s_TR_%s' % (y, tr_iter)],
-                        self.tr_value['%s_TR_%s_MAX' % (y, tr_iter)],
-                        self.tr_value['%s_TR_%s_PF' % (y, tr_iter)]))
+                        rec_time_iter,
+                        self.tr_value['%s_TR_%s_MIN' % (y, rec_time_iter)],
+                        self.tr_value['%s_TR_%s' % (y, rec_time_iter)],
+                        self.tr_value['%s_TR_%s_MAX' % (y, rec_time_iter)],
+                        self.tr_value['%s_TR_%s_PF' % (y, rec_time_iter)]))
 
 
 class ImbalanceComponent:
